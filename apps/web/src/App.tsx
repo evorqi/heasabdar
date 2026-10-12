@@ -257,7 +257,7 @@ export function App() {
                     }}
                   >
                     <span className="file-name" title={file.original_name}>
-                      {file.original_name}
+                      <bdi>{file.original_name}</bdi>
                     </span>
                     <span className="file-meta">
                       <span>{formatLabel(file.format)}</span>
@@ -299,7 +299,9 @@ export function App() {
                 <h2>جزئیات فایل</h2>
                 <dl className="meta">
                   <dt>نام</dt>
-                  <dd>{selected.original_name}</dd>
+                  <dd>
+                    <bdi>{selected.original_name}</bdi>
+                  </dd>
                   <dt>قالب</dt>
                   <dd>{formatLabel(selected.format)}</dd>
                   <dt>حجم</dt>
@@ -309,7 +311,7 @@ export function App() {
                     <span className="pill">{statusLabel(selected.status)}</span>
                   </dd>
                   <dt>زمان ذخیره</dt>
-                  <dd className="ltr">{formatDate(selected.created_at)}</dd>
+                  <dd>{formatDate(selected.created_at)}</dd>
                 </dl>
                 <p className="muted">این نسخه، همان فایل بارگذاری‌شده است و جایگزین نمی‌شود.</p>
                 <div className="detail-actions">
