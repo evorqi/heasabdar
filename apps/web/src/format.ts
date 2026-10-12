@@ -36,6 +36,76 @@ export function savedMessage(count: number): string {
   return `${count} فایل ذخیره شد.`;
 }
 
+const KINDS: Record<string, string> = {
+  text: "متن",
+  identifier: "شناسه",
+  number: "عدد",
+  currency: "مبلغ",
+  date: "تاریخ",
+  boolean: "بله یا خیر",
+  blank: "خالی",
+  mixed: "مخلوط",
+  unknown: "نامشخص",
+};
+
+const ROLES: Record<string, string> = {
+  national_id: "کد ملی",
+  phone: "تلفن",
+  invoice_no: "شماره فاکتور",
+  amount: "مبلغ",
+  date: "تاریخ",
+  person_name: "نام",
+  city: "شهر",
+  employee_id: "کد پرسنلی",
+  customer_id: "شناسه مشتری",
+  account_no: "شماره حساب",
+  product_code: "کد کالا",
+};
+
+const SEVERITIES: Record<string, string> = {
+  error: "خطا",
+  warning: "هشدار",
+  info: "توضیح",
+  hypothesis: "احتمال",
+};
+
+const UNSUPPORTED: Record<string, string> = {
+  macro: "ماکرو",
+  pivot_table: "جدول محوری",
+  external_link: "اتصال خارجی",
+  chart: "نمودار",
+  table: "جدول اکسل",
+  data_validation: "اعتبارسنجی داده",
+};
+
+export function kindLabel(kind: string): string {
+  return KINDS[kind] ?? kind;
+}
+
+export function roleLabel(role: string): string {
+  return ROLES[role] ?? role;
+}
+
+export function severityLabel(severity: string): string {
+  return SEVERITIES[severity] ?? severity;
+}
+
+export function headerStatusLabel(status: string): string {
+  if (status === "detected") return "عنوان تشخیص داده شد";
+  if (status === "hypothesized") return "عنوان قطعی نیست";
+  return status;
+}
+
+export function unsupportedLabel(flag: string): string {
+  return UNSUPPORTED[flag] ?? flag;
+}
+
+export function isTabularValue(raw: string | null): boolean {
+  if (!raw) return false;
+  if (raw.startsWith("=") || raw.startsWith("#")) return true;
+  return /^[0-9۰-۹٠-٩+\-.,٬،%/]+$/.test(raw);
+}
+
 function trimNumber(value: number): string {
   const rounded = value.toFixed(1);
   return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;

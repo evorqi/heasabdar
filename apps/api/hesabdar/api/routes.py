@@ -18,6 +18,10 @@ class WorkspaceIn(BaseModel):
     title: str
 
 
+class InspectionIn(BaseModel):
+    file_id: str
+
+
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -88,6 +92,11 @@ async def upload_files(
             "rejected": [asdict(item) for item in batch.rejected],
         },
     )
+
+
+@router.post("/workspaces/{workspace_id}/inspections")
+def inspect_file(workspace_id: str, body: InspectionIn, request: Request) -> dict:
+    return request.app.state.ctx.inspection.inspect(workspace_id, body.file_id)
 
 
 @router.get("/workspaces/{workspace_id}/versions/{version_id}/download")

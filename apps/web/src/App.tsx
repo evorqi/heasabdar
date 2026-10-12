@@ -1,16 +1,19 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ApiError,
   createWorkspace,
   downloadVersion,
   getWorkspace,
+  inspectFile,
   listFiles,
   uploadFiles,
   type RejectedFile,
   type StoredFile,
+  type StructureReport,
   type Workspace,
 } from "./api";
 import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
+import { Inspection } from "./Inspection";
 
 const WORKSPACE_KEY = "hesabdar.workspaceId";
 
@@ -29,6 +32,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [rejections, setRejections] = useState<RejectedFile[]>([]);
+  const [reports, setReports] = useState<Record<string, StructureReport>>({});
+  const [inspectErrors, setInspectErrors] = useState<Record<string, string>>({});
+  const [inspectingId, setInspectingId] = useState<string | null>(null);
+  const inspectToken = useRef(0);
 
   useEffect(() => {
     const saved = localStorage.getItem(WORKSPACE_KEY);
@@ -38,6 +45,12 @@ export function App() {
     }
     void openWorkspace(saved);
   }, []);
+
+  useEffect(() => {
+    if (!workspace || !selectedId) return;
+    if (reports[selectedId] || inspectErrors[selectedId] || inspectingId === selectedId) return;
+    void runInspect(workspace.id, selectedId);
+  }, [workspace, selectedId, reports, inspectErrors, inspectingId]);
 
   async function openWorkspace(id: string) {
     setLoading(true);
@@ -84,6 +97,7 @@ export function App() {
   }
 
   function startFresh() {
+    inspectToken.current += 1;
     localStorage.removeItem(WORKSPACE_KEY);
     setWorkspace(null);
     setFiles([]);
@@ -92,6 +106,32 @@ export function App() {
     setRejections([]);
     setError(null);
     setPending([]);
+    setReports({});
+    setInspectErrors({});
+    setInspectingId(null);
+  }
+
+  async function runInspect(workspaceId: string, fileId: string) {
+    const token = inspectToken.current + 1;
+    inspectToken.current = token;
+    setInspectingId(fileId);
+    setInspectErrors((current) => {
+      if (!current[fileId]) return current;
+      const next = { ...current };
+      delete next[fileId];
+      return next;
+    });
+    try {
+      const report = await inspectFile(workspaceId, fileId);
+      if (token !== inspectToken.current) return;
+      setReports((current) => ({ ...current, [fileId]: report }));
+    } catch (caught) {
+      if (token !== inspectToken.current) return;
+      const message = caught instanceof Error ? caught.message : "بررسی ساختار انجام نشد.";
+      setInspectErrors((current) => ({ ...current, [fileId]: message }));
+    } finally {
+      if (token === inspectToken.current) setInspectingId(null);
+    }
   }
 
   async function send(list: File[]) {
@@ -158,7 +198,7 @@ export function App() {
             </span>
             <h1>حسابدار</h1>
           </div>
-          <p className="lede">فضای کار فایل‌های جدولی. فایل را وارد کنید و همان نسخه اصلی را نگه دارید.</p>
+          <p className="lede">فضای کار فایل‌های جدولی. فایل را وارد کنید؛ نسخه اصلی می‌ماند و ساختار همان فایل خوانده می‌شود.</p>
           {error ? (
             <p className="alert" role="alert">
               {error}
@@ -340,6 +380,14 @@ export function App() {
                 ) : null}
               </article>
             )}
+            {selected && workspace ? (
+              <Inspection
+                report={reports[selected.id] ?? null}
+                loading={inspectingId === selected.id}
+                error={inspectErrors[selected.id] ?? null}
+                onInspect={() => void runInspect(workspace.id, selected.id)}
+              />
+            ) : null}
           </div>
         </main>
       </div>

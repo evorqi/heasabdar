@@ -55,9 +55,21 @@ CREATE TABLE IF NOT EXISTS operations (
     error_message TEXT
 );
 
+CREATE TABLE IF NOT EXISTS inspections (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    file_id TEXT NOT NULL REFERENCES files(id),
+    version_id TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_files_workspace ON files(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_versions_file ON versions(file_id);
+CREATE INDEX IF NOT EXISTS idx_inspections_file ON inspections(file_id, created_at);
 """
+
+SCHEMA_VERSION = 2
 
 
 class Database:
@@ -68,7 +80,9 @@ class Database:
             conn.executescript(SCHEMA)
             row = conn.execute("SELECT version FROM schema_meta").fetchone()
             if row is None:
-                conn.execute("INSERT INTO schema_meta (version) VALUES (1)")
+                conn.execute("INSERT INTO schema_meta (version) VALUES (?)", (SCHEMA_VERSION,))
+            elif row["version"] < SCHEMA_VERSION:
+                conn.execute("UPDATE schema_meta SET version = ?", (SCHEMA_VERSION,))
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)

@@ -95,6 +95,76 @@ export function uploadFiles(workspaceId: string, files: File[]): Promise<UploadR
   });
 }
 
+export type InspectionCell = {
+  raw: string | null;
+  parsed: string | null;
+  warnings: string[];
+};
+
+export type InspectionColumn = {
+  name: string;
+  index: number;
+  kind: string;
+  kind_confidence: number;
+  role_hints: string[];
+  empty_count: number;
+  samples: string[];
+};
+
+export type InspectionSheet = {
+  name: string;
+  row_count: number;
+  column_count: number;
+  data_row_count: number;
+  columns: InspectionColumn[];
+  formula_count: number;
+  error_display_count: number;
+  merged_cell_count: number;
+  unsupported: string[];
+  header_row_index: number;
+  header_status: string;
+  preview: {
+    row_limit: number;
+    truncated: boolean;
+    rows: InspectionCell[][];
+  };
+};
+
+export type Finding = {
+  code: string;
+  severity: string;
+  sheet: string | null;
+  address: string | null;
+  count: number;
+  message: string;
+  evidence: Record<string, unknown>;
+};
+
+export type UncheckedItem = {
+  code: string;
+  count: number;
+  message: string;
+  sheet?: string;
+};
+
+export type StructureReport = {
+  file_id: string;
+  version_id: string;
+  format: string;
+  sheet_count: number;
+  sheets: InspectionSheet[];
+  findings: Finding[];
+  unchecked: UncheckedItem[];
+};
+
+export function inspectFile(workspaceId: string, fileId: string): Promise<StructureReport> {
+  return request<StructureReport>(`/api/workspaces/${workspaceId}/inspections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+}
+
 export async function downloadVersion(
   workspaceId: string,
   versionId: string,

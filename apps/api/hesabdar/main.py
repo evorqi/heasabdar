@@ -16,6 +16,7 @@ from hesabdar.db import Database
 from hesabdar.errors import AppError, UnsafeBind
 from hesabdar.files.service import FileService
 from hesabdar.files.storage import Storage
+from hesabdar.inspection.service import InspectionService
 from hesabdar.messages import INTERNAL, REQUEST_INVALID, ROUTE_NOT_FOUND, UNSAFE_BIND
 from hesabdar.security.access import authorize
 
@@ -36,8 +37,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         max_files_per_upload=settings.max_files_per_upload,
         max_upload_bytes=settings.max_upload_bytes,
     )
+    inspection = InspectionService(files=service, database=database)
     app = FastAPI(title="hesabdar", docs_url="/api/docs", openapi_url="/api/openapi.json")
-    app.state.ctx = AppContext(settings=settings, db=database, storage=storage, service=service)
+    app.state.ctx = AppContext(
+        settings=settings,
+        db=database,
+        storage=storage,
+        service=service,
+        inspection=inspection,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),

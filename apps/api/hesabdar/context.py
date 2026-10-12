@@ -6,6 +6,7 @@ from hesabdar.config import Settings
 from hesabdar.db import Database
 from hesabdar.files.service import FileService
 from hesabdar.files.storage import Storage
+from hesabdar.inspection.service import InspectionService
 
 
 @dataclass
@@ -14,3 +15,4 @@ class AppContext:
     db: Database
     storage: Storage
     service: FileService
+    inspection: InspectionService

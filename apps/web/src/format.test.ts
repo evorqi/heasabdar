@@ -2,7 +2,19 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
-import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
+import {
+  formatDate,
+  formatLabel,
+  formatSize,
+  headerStatusLabel,
+  isTabularValue,
+  kindLabel,
+  roleLabel,
+  savedMessage,
+  severityLabel,
+  statusLabel,
+  unsupportedLabel,
+} from "./format";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -19,6 +31,22 @@ describe("format", () => {
     expect(savedMessage(2)).toBe("2 فایل ذخیره شد.");
     const name = "گزارش فروش مهر.csv";
     expect(name[0]).toBe("گ");
+  });
+
+  test("labels structure without calling an identifier a certain number", () => {
+    expect(kindLabel("identifier")).toBe("شناسه");
+    expect(kindLabel("identifier")).not.toBe("عدد");
+    expect(roleLabel("national_id")).toBe("کد ملی");
+    expect(roleLabel("amount")).toBe("مبلغ");
+    expect(severityLabel("hypothesis")).toBe("احتمال");
+    expect(severityLabel("error")).toBe("خطا");
+    expect(headerStatusLabel("hypothesized")).toBe("عنوان قطعی نیست");
+    expect(unsupportedLabel("pivot_table")).toBe("جدول محوری");
+    expect(isTabularValue("0012345678")).toBe(true);
+    expect(isTabularValue("1403/07/20")).toBe(true);
+    expect(isTabularValue("=C2*2")).toBe(true);
+    expect(isTabularValue("سارا احمدی")).toBe(false);
+    expect(isTabularValue("20 مهر 1405")).toBe(false);
   });
 
   test("formats timestamps without throwing", () => {
