@@ -229,6 +229,97 @@ class FileService:
             created_at=created_at,
         )
 
+    def add_derived_version(
+        self,
+        workspace_id: str,
+        file_id: str,
+        parent_version_id: str,
+        data: bytes,
+        *,
+        kind: str,
+        note: str,
+        operation_id: str,
+        row_count: int,
+        sheet_count: int,
+    ) -> str:
+        meta = self.get_file(workspace_id, file_id)
+        if meta["current_version_id"] != parent_version_id:
+            raise AppError("version.not_found", VERSION_NOT_FOUND, 404)
+        version_id = str(uuid.uuid4())
+        digest = hashlib.sha256(data).hexdigest()
+        created_at = _now()
+        self.storage.write_original(workspace_id, version_id, data)
+        try:
+            with self.db.transaction() as conn:
+                parent = conn.execute(
+                    """
+                    SELECT v.id FROM versions v
+                    JOIN files f ON f.id = v.file_id
+                    WHERE v.id = ? AND f.id = ? AND f.workspace_id = ?
+                    """,
+                    (parent_version_id, file_id, workspace_id),
+                ).fetchone()
+                if parent is None:
+                    raise AppError("version.not_found", VERSION_NOT_FOUND, 404)
+                conn.execute(
+                    """
+                    INSERT INTO versions (
+                        id, file_id, parent_version_id, kind, blob_name, operation_id,
+                        sha256, byte_size, row_count, sheet_count, created_at, note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        version_id,
+                        file_id,
+                        parent_version_id,
+                        kind,
+                        version_id,
+                        operation_id,
+                        digest,
+                        len(data),
+                        row_count,
+                        sheet_count,
+                        created_at,
+                        note,
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE files
+                    SET current_version_id = ?, byte_size = ?, sha256 = ?
+                    WHERE id = ? AND workspace_id = ?
+                    """,
+                    (version_id, len(data), digest, file_id, workspace_id),
+                )
+        except Exception:
+            self.storage.remove(workspace_id, version_id)
+            raise
+        return version_id
+
+    def point_at_version(self, workspace_id: str, file_id: str, version_id: str) -> dict:
+        self.get_file(workspace_id, file_id)
+        _parse_uuid(version_id, VERSION_NOT_FOUND)
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT v.sha256, v.byte_size FROM versions v
+                JOIN files f ON f.id = v.file_id
+                WHERE v.id = ? AND f.id = ? AND f.workspace_id = ?
+                """,
+                (version_id, file_id, workspace_id),
+            ).fetchone()
+            if row is None:
+                raise AppError("version.not_found", VERSION_NOT_FOUND, 404)
+            conn.execute(
+                """
+                UPDATE files
+                SET current_version_id = ?, byte_size = ?, sha256 = ?
+                WHERE id = ? AND workspace_id = ?
+                """,
+                (version_id, row["byte_size"], row["sha256"], file_id, workspace_id),
+            )
+        return self.get_file(workspace_id, file_id)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

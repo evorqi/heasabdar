@@ -67,9 +67,22 @@ CREATE TABLE IF NOT EXISTS inspections (
 CREATE INDEX IF NOT EXISTS idx_files_workspace ON files(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_versions_file ON versions(file_id);
 CREATE INDEX IF NOT EXISTS idx_inspections_file ON inspections(file_id, created_at);
+
+CREATE TABLE IF NOT EXISTS cleanings (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    file_id TEXT NOT NULL REFERENCES files(id),
+    source_version_id TEXT NOT NULL,
+    result_version_id TEXT,
+    status TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cleanings_file ON cleanings(file_id, created_at);
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Database:

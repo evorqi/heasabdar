@@ -22,6 +22,15 @@ class InspectionIn(BaseModel):
     file_id: str
 
 
+class CleanIn(BaseModel):
+    file_id: str
+    confirm: bool = False
+
+
+class RestoreIn(BaseModel):
+    version_id: str
+
+
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -97,6 +106,23 @@ async def upload_files(
 @router.post("/workspaces/{workspace_id}/inspections")
 def inspect_file(workspace_id: str, body: InspectionIn, request: Request) -> dict:
     return request.app.state.ctx.inspection.inspect(workspace_id, body.file_id)
+
+
+@router.post("/workspaces/{workspace_id}/cleanings/preview")
+def preview_cleaning(workspace_id: str, body: CleanIn, request: Request) -> dict:
+    return request.app.state.ctx.cleaning.preview(workspace_id, body.file_id)
+
+
+@router.post("/workspaces/{workspace_id}/cleanings")
+def apply_cleaning(workspace_id: str, body: CleanIn, request: Request) -> JSONResponse:
+    report = request.app.state.ctx.cleaning.apply(workspace_id, body.file_id, body.confirm)
+    status_code = 201 if report["status"] == "succeeded" else 200
+    return JSONResponse(status_code=status_code, content=report)
+
+
+@router.post("/workspaces/{workspace_id}/files/{file_id}/restore")
+def restore_version(workspace_id: str, file_id: str, body: RestoreIn, request: Request) -> dict:
+    return request.app.state.ctx.cleaning.restore(workspace_id, file_id, body.version_id)
 
 
 @router.get("/workspaces/{workspace_id}/versions/{version_id}/download")

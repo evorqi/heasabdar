@@ -229,6 +229,8 @@ def _read_csv(data: bytes, filename: str) -> WorkbookRead:
         dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
     except csv.Error:
         dialect = csv.excel
+    dialect.quotechar = '"'
+    dialect.doublequote = True
     reader = csv.reader(StringIO(text), dialect)
     rows: list[list[CellView]] = []
     truncated = False

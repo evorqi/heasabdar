@@ -13,6 +13,7 @@ import {
   type Workspace,
 } from "./api";
 import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
+import { Cleaning } from "./Cleaning";
 import { Inspection } from "./Inspection";
 
 const WORKSPACE_KEY = "hesabdar.workspaceId";
@@ -386,6 +387,17 @@ export function App() {
                 loading={inspectingId === selected.id}
                 error={inspectErrors[selected.id] ?? null}
                 onInspect={() => void runInspect(workspace.id, selected.id)}
+              />
+            ) : null}
+            {selected && workspace ? (
+              <Cleaning
+                key={selected.id}
+                workspaceId={workspace.id}
+                file={selected}
+                onChanged={async () => {
+                  const listed = await listFiles(workspace.id);
+                  setFiles(listed);
+                }}
               />
             ) : null}
           </div>

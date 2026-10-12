@@ -9,6 +9,7 @@ import {
   headerStatusLabel,
   isTabularValue,
   kindLabel,
+  ruleLabel,
   roleLabel,
   savedMessage,
   severityLabel,
@@ -34,6 +35,8 @@ describe("format", () => {
   });
 
   test("labels structure without calling an identifier a certain number", () => {
+    expect(ruleLabel("text.arabic_yeh")).toBe("ی عربی");
+    expect(ruleLabel("identifier.leading_zeros")).toBe("شناسه");
     expect(kindLabel("identifier")).toBe("شناسه");
     expect(kindLabel("identifier")).not.toBe("عدد");
     expect(roleLabel("national_id")).toBe("کد ملی");

@@ -157,6 +157,77 @@ export type StructureReport = {
   unchecked: UncheckedItem[];
 };
 
+export type CellChange = {
+  sheet: string;
+  row_index: number;
+  column_index: number;
+  before: string;
+  after: string;
+  rule_id: string;
+};
+
+export type SkippedCell = {
+  sheet: string | null;
+  row_index: number | null;
+  column_index: number | null;
+  rule_id: string;
+  message: string;
+};
+
+export type CleaningReport = {
+  status: string;
+  file_id: string;
+  source_version_id: string;
+  result_version_id: string | null;
+  message: string;
+  changes: CellChange[];
+  skipped: SkippedCell[];
+  stats: {
+    change_count: number;
+    requires_confirmation: boolean;
+    confirmation_reason: string | null;
+    sheets: Array<{
+      name: string;
+      rows_before: number;
+      rows_after: number;
+      data_rows: number;
+      changed_rows: number;
+    }>;
+  };
+};
+
+export function previewCleaning(workspaceId: string, fileId: string): Promise<CleaningReport> {
+  return request<CleaningReport>(`/api/workspaces/${workspaceId}/cleanings/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId }),
+  });
+}
+
+export function applyCleaning(
+  workspaceId: string,
+  fileId: string,
+  confirm: boolean,
+): Promise<CleaningReport> {
+  return request<CleaningReport>(`/api/workspaces/${workspaceId}/cleanings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId, confirm }),
+  });
+}
+
+export function restoreVersion(
+  workspaceId: string,
+  fileId: string,
+  versionId: string,
+): Promise<StoredFile> {
+  return request<StoredFile>(`/api/workspaces/${workspaceId}/files/${fileId}/restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version_id: versionId }),
+  });
+}
+
 export function inspectFile(workspaceId: string, fileId: string): Promise<StructureReport> {
   return request<StructureReport>(`/api/workspaces/${workspaceId}/inspections`, {
     method: "POST",

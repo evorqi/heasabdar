@@ -100,6 +100,22 @@ export function unsupportedLabel(flag: string): string {
   return UNSUPPORTED[flag] ?? flag;
 }
 
+const RULES: Record<string, string> = {
+  "text.trim": "فاصله دو سر",
+  "text.collapse_spaces": "فاصله‌های پیاپی",
+  "text.arabic_yeh": "ی عربی",
+  "text.arabic_kaf": "ک عربی",
+  "number.parse": "عدد",
+  "date.parse_jalali": "تاریخ شمسی",
+  "date.parse_gregorian": "تاریخ میلادی",
+  "identifier.leading_zeros": "شناسه",
+  "output.neutralize": "خنثی‌سازی",
+};
+
+export function ruleLabel(ruleId: string): string {
+  return RULES[ruleId] ?? ruleId;
+}
+
 export function isTabularValue(raw: string | null): boolean {
   if (!raw) return false;
   if (raw.startsWith("=") || raw.startsWith("#")) return true;
