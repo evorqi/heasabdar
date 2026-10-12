@@ -15,6 +15,7 @@ import {
 import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
 import { Cleaning } from "./Cleaning";
 import { Inspection } from "./Inspection";
+import { Reconcile } from "./Reconcile";
 
 const WORKSPACE_KEY = "hesabdar.workspaceId";
 
@@ -394,6 +395,16 @@ export function App() {
                 key={selected.id}
                 workspaceId={workspace.id}
                 file={selected}
+                onChanged={async () => {
+                  const listed = await listFiles(workspace.id);
+                  setFiles(listed);
+                }}
+              />
+            ) : null}
+            {workspace && files.length >= 2 ? (
+              <Reconcile
+                workspaceId={workspace.id}
+                files={files}
                 onChanged={async () => {
                   const listed = await listFiles(workspace.id);
                   setFiles(listed);

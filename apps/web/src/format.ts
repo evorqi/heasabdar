@@ -116,6 +116,18 @@ export function ruleLabel(ruleId: string): string {
   return RULES[ruleId] ?? ruleId;
 }
 
+const MATCHES: Record<string, string> = {
+  full_match: "منطبق",
+  value_mismatch: "مغایر",
+  only_left: "فقط فایل اول",
+  only_right: "فقط فایل دوم",
+  ambiguous: "مشکوک",
+};
+
+export function matchLabel(status: string): string {
+  return MATCHES[status] ?? status;
+}
+
 export function isTabularValue(raw: string | null): boolean {
   if (!raw) return false;
   if (raw.startsWith("=") || raw.startsWith("#")) return true;

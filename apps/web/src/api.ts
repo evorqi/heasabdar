@@ -228,6 +228,80 @@ export function restoreVersion(
   });
 }
 
+export type ReconcileRow = {
+  status: string;
+  key: string;
+  key_left: string;
+  key_right: string;
+  confidence: string;
+  name_left: string | null;
+  name_right: string | null;
+  amount_left: string | null;
+  amount_right: string | null;
+  amount_delta: string | null;
+  amount_delta_ratio: string | null;
+  reason: string;
+};
+
+export type ReconcileReport = {
+  status: string;
+  message: string;
+  left_file_id: string;
+  right_file_id: string;
+  result_file_id: string | null;
+  result_version_id: string | null;
+  result_name: string | null;
+  key_columns: string[];
+  key_decision: string | null;
+  key_ambiguous: boolean;
+  key_choices: string[];
+  question: string | null;
+  rows: ReconcileRow[];
+  summary: {
+    full_match: number;
+    value_mismatch: number;
+    only_left: number;
+    only_right: number;
+    ambiguous: number;
+  };
+  validation: {
+    ok: boolean;
+    left_rows: number;
+    right_rows: number;
+    left_amount: string | null;
+    right_amount: string | null;
+  };
+};
+
+export function previewReconciliation(
+  workspaceId: string,
+  leftFileId: string,
+  rightFileId: string,
+): Promise<ReconcileReport> {
+  return request<ReconcileReport>(`/api/workspaces/${workspaceId}/reconciliations/preview`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ left_file_id: leftFileId, right_file_id: rightFileId }),
+  });
+}
+
+export function applyReconciliation(
+  workspaceId: string,
+  leftFileId: string,
+  rightFileId: string,
+  keyColumns: string[],
+): Promise<ReconcileReport> {
+  return request<ReconcileReport>(`/api/workspaces/${workspaceId}/reconciliations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      left_file_id: leftFileId,
+      right_file_id: rightFileId,
+      key_columns: keyColumns,
+    }),
+  });
+}
+
 export function inspectFile(workspaceId: string, fileId: string): Promise<StructureReport> {
   return request<StructureReport>(`/api/workspaces/${workspaceId}/inspections`, {
     method: "POST",

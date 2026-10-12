@@ -18,6 +18,7 @@ from hesabdar.files.service import FileService
 from hesabdar.files.storage import Storage
 from hesabdar.cleaning.service import CleaningService
 from hesabdar.inspection.service import InspectionService
+from hesabdar.reconcile.service import ReconcileService
 from hesabdar.messages import INTERNAL, REQUEST_INVALID, ROUTE_NOT_FOUND, UNSAFE_BIND
 from hesabdar.security.access import authorize
 
@@ -40,6 +41,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     inspection = InspectionService(files=service, database=database)
     cleaning = CleaningService(files=service, database=database)
+    reconcile = ReconcileService(files=service, database=database)
     app = FastAPI(title="hesabdar", docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.ctx = AppContext(
         settings=settings,
@@ -48,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service=service,
         inspection=inspection,
         cleaning=cleaning,
+        reconcile=reconcile,
     )
     app.add_middleware(
         CORSMiddleware,

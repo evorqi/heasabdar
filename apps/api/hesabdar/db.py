@@ -80,9 +80,20 @@ CREATE TABLE IF NOT EXISTS cleanings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cleanings_file ON cleanings(file_id, created_at);
+
+CREATE TABLE IF NOT EXISTS reconciliations (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    left_file_id TEXT NOT NULL,
+    right_file_id TEXT NOT NULL,
+    result_file_id TEXT,
+    status TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class Database:

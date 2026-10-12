@@ -31,6 +31,12 @@ class RestoreIn(BaseModel):
     version_id: str
 
 
+class ReconcileIn(BaseModel):
+    left_file_id: str
+    right_file_id: str
+    key_columns: list[str] = []
+
+
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -116,6 +122,23 @@ def preview_cleaning(workspace_id: str, body: CleanIn, request: Request) -> dict
 @router.post("/workspaces/{workspace_id}/cleanings")
 def apply_cleaning(workspace_id: str, body: CleanIn, request: Request) -> JSONResponse:
     report = request.app.state.ctx.cleaning.apply(workspace_id, body.file_id, body.confirm)
+    status_code = 201 if report["status"] == "succeeded" else 200
+    return JSONResponse(status_code=status_code, content=report)
+
+
+@router.post("/workspaces/{workspace_id}/reconciliations/preview")
+def preview_reconciliation(workspace_id: str, body: ReconcileIn, request: Request) -> dict:
+    return request.app.state.ctx.reconcile.preview(workspace_id, body.left_file_id, body.right_file_id)
+
+
+@router.post("/workspaces/{workspace_id}/reconciliations")
+def apply_reconciliation(workspace_id: str, body: ReconcileIn, request: Request) -> JSONResponse:
+    report = request.app.state.ctx.reconcile.apply(
+        workspace_id,
+        body.left_file_id,
+        body.right_file_id,
+        body.key_columns,
+    )
     status_code = 201 if report["status"] == "succeeded" else 200
     return JSONResponse(status_code=status_code, content=report)
 

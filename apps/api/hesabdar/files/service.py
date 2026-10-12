@@ -320,6 +320,75 @@ class FileService:
             )
         return self.get_file(workspace_id, file_id)
 
+    def add_output_file(
+        self,
+        workspace_id: str,
+        name: str,
+        data: bytes,
+        *,
+        kind: str,
+        note: str,
+        parent_version_id: str | None,
+        operation_id: str,
+        row_count: int,
+        sheet_count: int,
+    ) -> StoredFile:
+        self.get_workspace(workspace_id)
+        file_id = str(uuid.uuid4())
+        version_id = str(uuid.uuid4())
+        digest = hashlib.sha256(data).hexdigest()
+        created_at = _now()
+        self.storage.write_original(workspace_id, version_id, data)
+        try:
+            with self.db.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO files (
+                        id, workspace_id, original_name, format, media_type,
+                        byte_size, sha256, current_version_id, created_at
+                    ) VALUES (?, ?, ?, 'xlsx', ?, ?, ?, NULL, ?)
+                    """,
+                    (
+                        file_id,
+                        workspace_id,
+                        name,
+                        MEDIA_TYPES["xlsx"],
+                        len(data),
+                        digest,
+                        created_at,
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO versions (
+                        id, file_id, parent_version_id, kind, blob_name, operation_id,
+                        sha256, byte_size, row_count, sheet_count, created_at, note
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        version_id,
+                        file_id,
+                        parent_version_id,
+                        kind,
+                        version_id,
+                        operation_id,
+                        digest,
+                        len(data),
+                        row_count,
+                        sheet_count,
+                        created_at,
+                        note,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE files SET current_version_id = ? WHERE id = ?",
+                    (version_id, file_id),
+                )
+        except Exception:
+            self.storage.remove(workspace_id, version_id)
+            raise
+        return self.get_file(workspace_id, file_id)
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
