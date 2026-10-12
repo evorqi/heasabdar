@@ -9,6 +9,25 @@ import {
   unsupportedLabel,
 } from "./format";
 
+const MARK = /(#(?:REF!|VALUE!|N\/A|DIV\/0!|NAME\?|NULL!|NUM!)|=\S+)/g;
+
+function MarkedText({ text }: { text: string }) {
+  const parts = text.split(MARK);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.startsWith("#") || part.startsWith("=") ? (
+          <bdi key={index} dir="ltr">
+            {part}
+          </bdi>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 type Props = {
   report: StructureReport | null;
   loading: boolean;
@@ -123,7 +142,9 @@ export function Inspection({ report, loading, error, onInspect }: Props) {
               {report.findings.map((finding, index) => (
                 <li key={`${finding.code}-${index}`} className={`finding finding-${finding.severity}`}>
                   <span className={`pill pill-${finding.severity}`}>{severityLabel(finding.severity)}</span>
-                  <span>{finding.message}</span>
+                  <span>
+                    <MarkedText text={finding.message} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -173,7 +194,7 @@ export function Inspection({ report, loading, error, onInspect }: Props) {
                           const raw = cell?.raw ?? "";
                           return (
                             <td key={column.index} className={isTabularValue(raw) ? "num" : undefined}>
-                              {raw}
+                              {isTabularValue(raw) ? <bdi dir="ltr">{raw}</bdi> : raw}
                             </td>
                           );
                         })}

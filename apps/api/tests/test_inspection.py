@@ -130,6 +130,8 @@ def test_visible_formula_errors_are_not_successful_evaluations(client: TestClien
     report = response.json()
     seen = {item["evidence"]["token"] for item in report["findings"] if item["code"] == "excel.error"}
     assert seen == set(ERROR_TOKENS)
+    div = next(item for item in report["findings"] if item.get("evidence", {}).get("token") == "#DIV/0!")
+    assert "\u2066#DIV/0!\u2069" in div["message"]
     unchecked = report["unchecked"]
     assert len(unchecked) == 1
     assert unchecked[0]["code"] == "formula.not_evaluated"

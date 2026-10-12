@@ -372,7 +372,9 @@ def _error_findings(sheet: RawSheet, findings: list[dict]) -> None:
                 "sheet": sheet.name,
                 "address": addresses[0],
                 "count": len(addresses),
-                "message": f"در برگه {sheet.name}، {len(addresses)} مورد خطای {token} دیده شد.",
+                "message": (
+                    f"در برگه {sheet.name}، {len(addresses)} مورد خطای \u2066{token}\u2069 دیده شد."
+                ),
                 "evidence": {"addresses": addresses[:8], "token": token},
             }
         )
