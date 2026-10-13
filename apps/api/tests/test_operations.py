@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 from decimal import Decimal
 from io import BytesIO
 
@@ -13,7 +15,7 @@ from hesabdar.errors import AppError
 from hesabdar.planner.explain import consistent
 from hesabdar.planner.llm import llm_status
 from hesabdar.planner.registry import TOOLS
-from hesabdar.planner.rules import build_plan
+from hesabdar.planner.rules import build_plan, repeat_period
 from hesabdar.planner.validate import validate_plan
 from tests.test_api import create_workspace, upload
 
@@ -22,6 +24,7 @@ SORT_TEXT = "داده‌ها را بر اساس مبلغ مرتب کن"
 COMPUTE_TEXT = "ستون درصد اختلاف را اضافه کن"
 RECONCILE_TEXT = "این دو فایل را تطبیق بده، اختلاف مبالغ را پیدا کن و فایل مغایرت بده"
 RANK_TEXT = "بیشترین فروش متعلق به کدام شهر است"
+REPEAT_TEXT = "همین گزارش را برای مهر هم بساز"
 
 
 def test_registry_stops_before_later_tools() -> None:
@@ -292,6 +295,134 @@ def test_ambiguous_key_and_vague_text_do_not_write(client: TestClient) -> None:
     assert chosen.json()["summary"].startswith("منطبق 2")
     names = {item["original_name"] for item in client.get(f"/api/workspaces/{workspace['id']}/files").json()["files"]}
     assert "مغایرت.xlsx" in names
+
+
+def test_repeat_period_without_a_previous_report_asks(client: TestClient) -> None:
+    assert repeat_period(REPEAT_TEXT) == "مهر"
+    assert repeat_period(FILTER_TEXT) is None
+    assert repeat_period(RANK_TEXT) is None
+    payload = _xlsx([["نام", "مبلغ"], ["علی", 60000000]])
+    workspace, stored = _one(client, "بدون گزارش", "فروش.xlsx", payload)
+    before = _names(client, workspace["id"])
+    response = client.post(
+        f"/api/workspaces/{workspace['id']}/operations",
+        json={"text": REPEAT_TEXT, "file_ids": [stored["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "waiting_confirmation"
+    assert body["outputs"] == []
+    assert "کدام گزارش" in body["summary"]
+    assert "مهر" in body["summary"]
+    assert body["plan"]["steps"] == []
+    assert _names(client, workspace["id"]) == before
+    _assert_original(client, workspace["id"], stored, payload)
+
+
+def test_repeat_period_replays_the_previous_filter(client: TestClient, settings: Settings) -> None:
+    rows = [["نام", "مبلغ"], ["علی", 60000000], ["سارا", 1000]]
+    payload = _xlsx(rows)
+    workspace, stored = _one(client, "گزارش مهر", "فروش.xlsx", payload)
+    first = client.post(
+        f"/api/workspaces/{workspace['id']}/operations",
+        json={"text": FILTER_TEXT, "file_ids": [stored["id"]]},
+    )
+    assert first.status_code == 201, first.text
+    first_body = first.json()
+    second = client.post(
+        f"/api/workspaces/{workspace['id']}/operations",
+        json={"text": REPEAT_TEXT, "file_ids": [stored["id"]]},
+    )
+    assert second.status_code == 201, second.text
+    body = second.json()
+    assert body["id"] != first_body["id"]
+    assert body["status"] == "succeeded"
+    assert body["summary"].startswith(first_body["summary"])
+    assert body["summary"].endswith("این نتیجه برای مهر است.")
+    assert "مهر" in body["summary"]
+    assert any(step["tool"] == "filter" for step in body["plan"]["steps"])
+    assert body["outputs"]
+    assert body["outputs"][0]["version_id"] != first_body["outputs"][0]["version_id"]
+    names = _names(client, workspace["id"])
+    assert names.count("فیلتر.xlsx") == 2
+    _assert_original(client, workspace["id"], stored, payload)
+    focus = _focus(settings, workspace["id"])
+    assert focus["last_plan_id"] == body["id"]
+    assert focus["last_period_label"] == "مهر"
+
+
+def test_cancel_stops_before_an_output_file(client: TestClient) -> None:
+    payload = _xlsx([["نام", "مبلغ"], ["علی", 60000000], ["سارا", 1000]])
+    workspace, stored = _one(client, "لغو", "فروش.xlsx", payload)
+    operations = client.app.state.ctx.operations
+    operations.arm_pause()
+    try:
+        response = client.post(
+            f"/api/workspaces/{workspace['id']}/operations",
+            json={"text": FILTER_TEXT, "file_ids": [stored["id"]]},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "running"
+        assert body["progress_total"] > 0
+        assert body["progress_label"]
+        assert body["outputs"] == []
+        current = client.get(f"/api/workspaces/{workspace['id']}/operations/{body['id']}")
+        assert current.status_code == 200
+        assert current.json()["status"] == "running"
+        again = client.post(
+            f"/api/workspaces/{workspace['id']}/operations",
+            json={"text": FILTER_TEXT, "file_ids": [stored["id"]]},
+        )
+        assert again.status_code == 200, again.text
+        assert again.json()["id"] == body["id"]
+        assert again.json()["outputs"] == []
+        cancelled = client.post(f"/api/workspaces/{workspace['id']}/operations/{body['id']}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        done = cancelled.json()
+        assert done["status"] == "cancelled"
+        assert done["outputs"] == []
+        assert done["error"] is None
+        assert done["progress_label"] == "لغو شد"
+        assert "فیلتر انجام شد" not in (done["summary"] or "")
+        assert "ردیف از" not in (done["summary"] or "")
+        assert "فیلتر.xlsx" not in _names(client, workspace["id"])
+        _assert_original(client, workspace["id"], stored, payload)
+    finally:
+        operations.release()
+
+
+def test_cancel_of_finished_work_keeps_the_file(client: TestClient) -> None:
+    payload = _xlsx([["نام", "مبلغ"], ["علی", 60000000]])
+    workspace, stored = _one(client, "تمام‌شده", "فروش.xlsx", payload)
+    created = client.post(
+        f"/api/workspaces/{workspace['id']}/operations",
+        json={"text": FILTER_TEXT, "file_ids": [stored["id"]]},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    cancelled = client.post(f"/api/workspaces/{workspace['id']}/operations/{body['id']}/cancel")
+    assert cancelled.status_code == 201, cancelled.text
+    assert cancelled.json()["status"] == "succeeded"
+    assert cancelled.json()["outputs"] == body["outputs"]
+    assert "فیلتر.xlsx" in _names(client, workspace["id"])
+
+
+def _names(client: TestClient, workspace_id: str) -> list[str]:
+    listed = client.get(f"/api/workspaces/{workspace_id}/files")
+    assert listed.status_code == 200, listed.text
+    return [item["original_name"] for item in listed.json()["files"]]
+
+
+def _focus(settings: Settings, workspace_id: str) -> dict:
+    connection = sqlite3.connect(settings.data_dir / "hesabdar.sqlite")
+    row = connection.execute(
+        "SELECT focus_json FROM conversation_focus WHERE workspace_id = ?",
+        (workspace_id,),
+    ).fetchone()
+    connection.close()
+    assert row is not None
+    return json.loads(row[0])
 
 
 def _independent_filter(rows: list[list], threshold: Decimal) -> int:

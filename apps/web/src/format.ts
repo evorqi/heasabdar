@@ -128,6 +128,10 @@ export function matchLabel(status: string): string {
   return MATCHES[status] ?? status;
 }
 
+export function operationLooksSuccessful(status: string): boolean {
+  return status === "succeeded";
+}
+
 export function isTabularValue(raw: string | null): boolean {
   if (!raw) return false;
   if (raw.startsWith("=") || raw.startsWith("#")) return true;

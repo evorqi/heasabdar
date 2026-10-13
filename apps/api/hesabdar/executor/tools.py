@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -30,6 +31,11 @@ class StepResult:
     metrics: dict[str, str] = field(default_factory=dict)
     waiting: dict | None = None
     sheet_name: str | None = None
+    cancelled: bool = False
+
+
+class _Stopped(Exception):
+    pass
 
 
 class ToolRunner:
@@ -39,13 +45,23 @@ class ToolRunner:
         inspection: InspectionService,
         cleaning: CleaningService,
         reconcile: ReconcileService,
+        stop: Callable[[str, str], bool] | None = None,
     ) -> None:
         self.files = files
         self.inspection = inspection
         self.cleaning = cleaning
         self.reconcile = reconcile
+        self._stop = stop or (lambda _workspace_id, _operation_id: False)
 
     def run(self, workspace_id: str, step: dict, operation_id: str) -> StepResult:
+        if self._stop(workspace_id, operation_id):
+            return StepResult(cancelled=True)
+        try:
+            return self._dispatch(workspace_id, step, operation_id)
+        except _Stopped:
+            return StepResult(cancelled=True)
+
+    def _dispatch(self, workspace_id: str, step: dict, operation_id: str) -> StepResult:
         tool = step["tool"]
         params = step["params"]
         if tool == "inspect":
@@ -53,7 +69,7 @@ class ToolRunner:
         if tool == "preview":
             return self._preview(workspace_id, params["file_id"])
         if tool == "clean":
-            return self._clean(workspace_id, params)
+            return self._clean(workspace_id, params, operation_id)
         if tool == "filter":
             return self._filter(workspace_id, params, operation_id)
         if tool == "sort":
@@ -63,7 +79,7 @@ class ToolRunner:
         if tool == "compute_column":
             return self._compute(workspace_id, params, operation_id)
         if tool == "reconcile":
-            return self._reconcile(workspace_id, params)
+            return self._reconcile(workspace_id, params, operation_id)
         raise AppError("plan.unknown_tool", "این برنامه پذیرفته نشد.", 422)
 
     def _inspect(self, workspace_id: str, file_id: str) -> StepResult:
@@ -80,7 +96,9 @@ class ToolRunner:
             sheet_name=table["sheet"],
         )
 
-    def _clean(self, workspace_id: str, params: dict) -> StepResult:
+    def _clean(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
         report = self.cleaning.apply(workspace_id, params["file_id"], bool(params.get("confirm")))
         if report["status"] == "waiting_confirmation":
             return StepResult(
@@ -220,7 +238,9 @@ class ToolRunner:
         )
         return StepResult(summary=summary, warnings=warnings, outputs=[stored], metrics=metrics, sheet_name=table["sheet"])
 
-    def _reconcile(self, workspace_id: str, params: dict) -> StepResult:
+    def _reconcile(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
         report = self.reconcile.apply(
             workspace_id,
             params["left_file_id"],
@@ -271,8 +291,12 @@ class ToolRunner:
         note: str,
         header_name: str | None = None,
     ) -> dict:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
         data = write_workbook(sheets, "xlsx")
         assert_output(data, data_rows, header_name)
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
         stored = self.files.add_output_file(
             workspace_id,
             name,

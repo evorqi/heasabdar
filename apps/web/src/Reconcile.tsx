@@ -1,13 +1,18 @@
 import { useState } from "react";
 import {
   ApiError,
-  applyReconciliation,
+  cancelOperation,
+  confirmOperation,
+  createOperation,
   downloadVersion,
   previewReconciliation,
+  waitForOperation,
+  type Operation,
   type ReconcileReport,
   type StoredFile,
 } from "./api";
-import { matchLabel } from "./format";
+import { matchLabel, operationLooksSuccessful } from "./format";
+import { RECONCILE_TEXT } from "./quick";
 
 const PREVIEW_LIMIT = 200;
 
@@ -22,6 +27,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
   const [rightId, setRightId] = useState(files[1]?.id ?? files[0]?.id ?? "");
   const [picked, setPicked] = useState<string[]>([]);
   const [report, setReport] = useState<ReconcileReport | null>(null);
+  const [operation, setOperation] = useState<Operation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,29 +57,57 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
   async function apply() {
     if (leftId === rightId) {
       setError("دو فایل متفاوت انتخاب کنید.");
+      setOperation(null);
       return;
     }
+    const previous = operation;
     setBusy(true);
     setError(null);
+    setOperation(null);
     try {
-      const next = await applyReconciliation(workspaceId, leftId, rightId, picked);
-      setReport(next);
-      if (next.status === "succeeded" && next.result_file_id) {
+      let next: Operation;
+      if (previous?.status === "waiting_confirmation" && picked.length > 0) {
+        next = await confirmOperation(workspaceId, previous.id, { key_columns: picked });
+      } else {
+        next = await createOperation(workspaceId, RECONCILE_TEXT, [leftId, rightId]);
+        if (next.status === "waiting_confirmation" && picked.length > 0) {
+          next = await confirmOperation(workspaceId, next.id, { key_columns: picked });
+        }
+      }
+      next = await waitForOperation(workspaceId, next, setOperation);
+      setOperation(next);
+      if (operationLooksSuccessful(next.status) && next.error == null) {
         await onChanged();
       }
     } catch (caught) {
+      setOperation(null);
       setError(caught instanceof ApiError ? caught.message : "ساخت فایل مغایرت انجام نشد.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function download() {
-    if (!report?.result_version_id || !report.result_name) return;
+  async function cancel() {
+    if (!operation || operation.status !== "running") return;
     setBusy(true);
     setError(null);
     try {
-      await downloadVersion(workspaceId, report.result_version_id, report.result_name);
+      setOperation(await cancelOperation(workspaceId, operation.id));
+    } catch (caught) {
+      setOperation(null);
+      setError(caught instanceof Error ? caught.message : "لغو انجام نشد.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function download() {
+    const output = operation?.outputs[0];
+    if (!output) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await downloadVersion(workspaceId, output.version_id, output.name);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "دریافت فایل مغایرت انجام نشد.");
     } finally {
@@ -81,9 +115,15 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
     }
   }
 
-  const needsChoice = Boolean(report?.key_ambiguous && picked.length === 0);
+  const opOk = Boolean(operation && operationLooksSuccessful(operation.status) && operation.error == null);
+  const choiceList =
+    operation?.status === "waiting_confirmation"
+      ? (operation.plan.ambiguities[0]?.choices ?? [])
+      : report?.key_ambiguous
+        ? report.key_choices
+        : [];
+  const needsChoice = Boolean(choiceList.length > 0 && picked.length === 0 && !opOk);
   const shown = report?.rows.slice(0, PREVIEW_LIMIT) ?? [];
-  const succeeded = report?.status === "succeeded" && Boolean(report.result_file_id);
 
   return (
     <article className="card stack">
@@ -99,6 +139,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
             onChange={(event) => {
               setLeftId(event.target.value);
               setReport(null);
+              setOperation(null);
               setPicked([]);
             }}
           >
@@ -116,6 +157,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
             onChange={(event) => {
               setRightId(event.target.value);
               setReport(null);
+              setOperation(null);
               setPicked([]);
             }}
           >
@@ -140,21 +182,32 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
           {error}
         </p>
       ) : null}
-      {report ? (
-        <>
-          {succeeded ? (
-            <p className="alert alert-success" role="status">
-              {report.message}
-            </p>
-          ) : (
-            <p className={report.key_ambiguous ? "alert" : "muted"} role="status">
-              {report.question || report.message}
-            </p>
-          )}
-          {report.key_ambiguous ? (
+      {operation?.status === "running" ? (
+        <div className="progress-row">
+          <p role="status">{operation.progress_label}</p>
+          <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void cancel()}>
+            لغو
+          </button>
+        </div>
+      ) : null}
+      {opOk ? (
+        <p className="alert alert-success" role="status">
+          {operation?.summary}
+        </p>
+      ) : operation && operation.status !== "running" ? (
+        <p className={operation.status === "failed" ? "alert" : "muted"} role={operation.status === "failed" ? "alert" : "status"}>
+          {operation.status === "failed" ? operation.error?.message : operation.summary}
+        </p>
+      ) : null}
+      {report && !operation ? (
+        <p className={report.key_ambiguous ? "alert" : "muted"} role="status">
+          {report.question || report.message}
+        </p>
+      ) : null}
+      {choiceList.length > 0 && !opOk ? (
             <fieldset className="choices">
               <legend>ستون کلید</legend>
-              {report.key_choices.map((column) => (
+              {choiceList.map((column) => (
                 <label key={column}>
                   <input
                     type="checkbox"
@@ -165,12 +218,12 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
                 </label>
               ))}
             </fieldset>
-          ) : report.key_columns.length > 0 ? (
+          ) : report && report.key_columns.length > 0 ? (
             <p className="muted">
               کلید: {report.key_columns.map((column) => column).join("، ")}
             </p>
           ) : null}
-          {report.rows.length > 0 ? (
+          {report && report.rows.length > 0 ? (
             <>
               <p className="counts">
                 {`منطبق ${report.summary.full_match}، مغایر ${report.summary.value_mismatch}، فقط فایل اول ${report.summary.only_left}، فقط فایل دوم ${report.summary.only_right}، مشکوک ${report.summary.ambiguous}`}
@@ -214,13 +267,11 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
               </div>
             </>
           ) : null}
-          {succeeded ? (
+          {opOk ? (
             <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void download()}>
               دریافت فایل مغایرت
             </button>
           ) : null}
-        </>
-      ) : null}
     </article>
   );
 }

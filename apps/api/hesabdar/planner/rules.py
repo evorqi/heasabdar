@@ -28,6 +28,18 @@ _COMPARISONS = (
 _MAX_TEXT = 2000
 
 
+def repeat_period(user_text: str) -> str | None:
+    """«همین گزارش را برای مهر هم بساز». محتوای سلول را نمی‌خواند."""
+
+    text = user_text.strip()
+    if not text or len(text) > _MAX_TEXT or looks_like_code(text):
+        return None
+    normal = _normalize(text)
+    if "همین گزارش" in normal and "مهر" in normal:
+        return "مهر"
+    return None
+
+
 def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
     """فقط متن درخواست را می‌خواند. محتوای سلول هرگز به اینجا نمی‌رسد."""
 

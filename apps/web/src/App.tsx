@@ -13,6 +13,7 @@ import {
   type Workspace,
 } from "./api";
 import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
+import { Chat } from "./Chat";
 import { Cleaning } from "./Cleaning";
 import { Inspection } from "./Inspection";
 import { Reconcile } from "./Reconcile";
@@ -382,6 +383,17 @@ export function App() {
                 ) : null}
               </article>
             )}
+            {workspace ? (
+              <Chat
+                workspaceId={workspace.id}
+                files={files}
+                selectedId={selectedId}
+                onChanged={async () => {
+                  const listed = await listFiles(workspace.id);
+                  setFiles(listed);
+                }}
+              />
+            ) : null}
             {selected && workspace ? (
               <Inspection
                 report={reports[selected.id] ?? null}

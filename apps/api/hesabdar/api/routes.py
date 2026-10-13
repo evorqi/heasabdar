@@ -180,6 +180,12 @@ def confirm_operation(
     return JSONResponse(status_code=_operation_status(report), content=report)
 
 
+@router.post("/workspaces/{workspace_id}/operations/{operation_id}/cancel")
+def cancel_operation(workspace_id: str, operation_id: str, request: Request) -> JSONResponse:
+    report = request.app.state.ctx.operations.cancel(workspace_id, operation_id)
+    return JSONResponse(status_code=_operation_status(report), content=report)
+
+
 @router.post("/workspaces/{workspace_id}/files/{file_id}/restore")
 def restore_version(workspace_id: str, file_id: str, body: RestoreIn, request: Request) -> dict:
     return request.app.state.ctx.cleaning.restore(workspace_id, file_id, body.version_id)

@@ -10,6 +10,7 @@ import {
   isTabularValue,
   kindLabel,
   matchLabel,
+  operationLooksSuccessful,
   ruleLabel,
   roleLabel,
   savedMessage,
@@ -17,6 +18,7 @@ import {
   statusLabel,
   unsupportedLabel,
 } from "./format";
+import { QUICK_ACTIONS, RECONCILE_TEXT } from "./quick";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -33,6 +35,21 @@ describe("format", () => {
     expect(savedMessage(2)).toBe("2 فایل ذخیره شد.");
     const name = "گزارش فروش مهر.csv";
     expect(name[0]).toBe("گ");
+  });
+
+  test("only a succeeded operation looks successful", () => {
+    expect(operationLooksSuccessful("succeeded")).toBe(true);
+    expect(operationLooksSuccessful("failed")).toBe(false);
+    expect(operationLooksSuccessful("cancelled")).toBe(false);
+    expect(operationLooksSuccessful("running")).toBe(false);
+    expect(operationLooksSuccessful("waiting_confirmation")).toBe(false);
+  });
+
+  test("quick actions stay on registered tools and share the reconcile sentence", () => {
+    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("رتبه");
+    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("نمودار");
+    expect(QUICK_ACTIONS.find((action) => action.label === "مغایرت")?.text).toBe(RECONCILE_TEXT);
+    expect(QUICK_ACTIONS.find((action) => action.label === "پیش‌نمایش")?.text.includes("\u200c")).toBe(true);
   });
 
   test("labels structure without calling an identifier a certain number", () => {

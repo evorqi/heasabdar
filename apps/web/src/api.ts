@@ -285,6 +285,111 @@ export function previewReconciliation(
   });
 }
 
+export type OperationOutput = {
+  file_id: string;
+  version_id: string;
+  name: string;
+};
+
+export type Operation = {
+  id: string;
+  status: string;
+  progress_current: number;
+  progress_total: number;
+  progress_label: string | null;
+  summary: string | null;
+  warnings: string[];
+  error: { code: string; message: string } | null;
+  outputs: OperationOutput[];
+  plan: {
+    id: string;
+    goal: string;
+    user_text: string;
+    source: string;
+    steps: unknown[];
+    ambiguities: { code: string; question: string; choices: string[] }[];
+  };
+  llm_status: string;
+};
+
+async function readOperation(response: Response): Promise<Operation> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError("پاسخ سرور قابل‌خواندن نیست.");
+  }
+  if (body && typeof body === "object" && "status" in body && "id" in body) {
+    return body as Operation;
+  }
+  const record = body as { message?: string; code?: string };
+  throw new ApiError(record.message || "خطای ناشناخته رخ داد.", record.code || "unknown");
+}
+
+async function sendOperation(path: string, init?: RequestInit): Promise<Operation> {
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch {
+    throw new ApiError(
+      "ارتباط با سرور برقرار نشد. اتصال را بررسی کنید و دوباره تلاش کنید.",
+      "network",
+    );
+  }
+  return readOperation(response);
+}
+
+export function createOperation(
+  workspaceId: string,
+  text: string,
+  fileIds: string[],
+): Promise<Operation> {
+  return sendOperation(`/api/workspaces/${workspaceId}/operations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, file_ids: fileIds }),
+  });
+}
+
+export function getOperation(workspaceId: string, operationId: string): Promise<Operation> {
+  return sendOperation(`/api/workspaces/${workspaceId}/operations/${operationId}`);
+}
+
+export function confirmOperation(
+  workspaceId: string,
+  operationId: string,
+  body: { key_columns?: string[]; column?: string | null },
+): Promise<Operation> {
+  return sendOperation(`/api/workspaces/${workspaceId}/operations/${operationId}/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      key_columns: body.key_columns ?? [],
+      column: body.column ?? null,
+    }),
+  });
+}
+
+export function cancelOperation(workspaceId: string, operationId: string): Promise<Operation> {
+  return sendOperation(`/api/workspaces/${workspaceId}/operations/${operationId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function waitForOperation(
+  workspaceId: string,
+  operation: Operation,
+  onUpdate?: (operation: Operation) => void,
+): Promise<Operation> {
+  let current = operation;
+  for (let attempt = 0; attempt < 120 && current.status === "running"; attempt += 1) {
+    onUpdate?.(current);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    current = await getOperation(workspaceId, current.id);
+  }
+  return current;
+}
+
 export function applyReconciliation(
   workspaceId: string,
   leftFileId: string,

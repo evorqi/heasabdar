@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import threading
@@ -13,10 +14,17 @@ from hesabdar.errors import AppError
 from hesabdar.executor.tools import ToolRunner
 from hesabdar.files.service import FileService
 from hesabdar.inspection.service import InspectionService
-from hesabdar.messages import INTERNAL, OPERATION_INVALID, OPERATION_NOT_FOUND, REQUEST_INVALID
+from hesabdar.messages import (
+    INTERNAL,
+    JOB_CANCELLED,
+    OPERATION_INVALID,
+    OPERATION_NOT_FOUND,
+    PLAN_NEED_REPORT,
+    REQUEST_INVALID,
+)
 from hesabdar.planner.explain import consistent
 from hesabdar.planner.llm import llm_status
-from hesabdar.planner.rules import build_plan
+from hesabdar.planner.rules import build_plan, repeat_period
 from hesabdar.planner.validate import validate_plan
 from hesabdar.reconcile.service import ReconcileService
 
@@ -42,6 +50,17 @@ _DONE = {
     "inspect": "بررسی انجام شد",
     "preview": "پیش‌نمایش آماده است",
 }
+_BUSY = {
+    "filter": "در حال فیلتر",
+    "sort": "در حال مرتب‌سازی",
+    "add_column": "در حال افزودن ستون",
+    "compute_column": "در حال محاسبه",
+    "reconcile": "در حال مغایرت",
+    "clean": "در حال پاک‌سازی",
+    "inspect": "در حال بررسی",
+    "preview": "در حال پیش‌نمایش",
+}
+_PERIOD_NOTE = " این نتیجه برای مهر است."
 
 
 class OperationService:
@@ -57,25 +76,57 @@ class OperationService:
         self.settings = settings
         self.files = files
         self.database = database
-        self.runner = ToolRunner(files, inspection, cleaning, reconcile)
+        self.runner = ToolRunner(files, inspection, cleaning, reconcile, stop=self._is_cancelled)
+        self._pause_next = False
+        self._gate_lock = threading.Lock()
+        self._gates: dict[str, threading.Event] = {}
+        self._entered: dict[str, threading.Event] = {}
+        self._workers: dict[str, threading.Thread] = {}
+
+    def arm_pause(self) -> None:
+        self._pause_next = True
+
+    def release(self) -> None:
+        self._pause_next = False
+        with self._gate_lock:
+            gates = list(self._gates.values())
+            workers = list(self._workers.values())
+        for gate in gates:
+            gate.set()
+        for worker in workers:
+            if worker is not threading.current_thread():
+                worker.join(timeout=30)
 
     def submit(self, workspace_id: str, text: str, file_ids: list[str] | None) -> dict:
         with _workspace_lock(workspace_id):
             self.files.get_workspace(workspace_id)
+            running = self._find_running(workspace_id)
+            if running is not None:
+                return _public(running)
             chosen = self._existing_files(workspace_id, file_ids)
             if chosen:
                 self._save_focus(workspace_id, {**self._focus(workspace_id), "file_ids": chosen})
             elif not file_ids:
                 chosen = list(self._focus(workspace_id).get("file_ids") or [])
                 self._existing_files(workspace_id, chosen)
-            try:
-                plan = build_plan(text, workspace_id, chosen)
-                validate_plan(plan)
-            except AppError as exc:
-                return self._save(workspace_id, self._failed(workspace_id, exc))
-            if plan["ambiguities"]:
-                return self._save(workspace_id, self._waiting(workspace_id, plan, plan["ambiguities"][0]))
-            return self._execute(workspace_id, plan, plan["steps"])
+            period = repeat_period(text)
+            if period:
+                try:
+                    plan = self._period_plan(workspace_id, text, period)
+                except AppError as exc:
+                    return self._save(workspace_id, self._failed(workspace_id, exc))
+                if plan is None:
+                    return self._ask_report(workspace_id, text)
+            else:
+                try:
+                    plan = build_plan(text, workspace_id, chosen)
+                    validate_plan(plan)
+                except AppError as exc:
+                    return self._save(workspace_id, self._failed(workspace_id, exc))
+                if plan["ambiguities"]:
+                    return self._save(workspace_id, self._waiting(workspace_id, plan, plan["ambiguities"][0]))
+            operation_id, paused, worker = self._start(workspace_id, plan, plan["steps"])
+        return self._join_or_running(workspace_id, operation_id, paused, worker)
 
     def confirm(self, workspace_id: str, operation_id: str, key_columns: list[str], column: str | None) -> dict:
         with _workspace_lock(workspace_id):
@@ -119,20 +170,42 @@ class OperationService:
                 return self._execute(workspace_id, record["plan"], [step], operation_id=record["id"])
             return _public(record)
 
+    def cancel(self, workspace_id: str, operation_id: str) -> dict:
+        with _workspace_lock(workspace_id):
+            self.files.get_workspace(workspace_id)
+            record = self._load(workspace_id, operation_id)
+            if record["status"] != "running":
+                return _public(record)
+            record["status"] = "cancelled"
+            record["summary"] = JOB_CANCELLED
+            record["outputs"] = []
+            record["error"] = None
+            record["warnings"] = []
+            record["progress_label"] = "لغو شد"
+            record["finished_at"] = _now()
+            saved = self._save(workspace_id, record)
+        self._wake(operation_id)
+        return saved
+
     def get(self, workspace_id: str, operation_id: str) -> dict:
         self.files.get_workspace(workspace_id)
         return _public(self._load(workspace_id, operation_id))
 
     def _execute(self, workspace_id: str, plan: dict, steps: list[dict], operation_id: str | None = None) -> dict:
-        operation_id = operation_id or str(uuid.uuid4())
+        operation_id = operation_id or plan["id"]
         summary = None
         warnings: list[str] = []
         outputs: list[dict] = []
         sheet_name = None
         try:
             validate_plan({"steps": steps})
-            for step in steps:
+            for index, step in enumerate(steps):
+                if self._is_cancelled(workspace_id, operation_id):
+                    return self.get(workspace_id, operation_id)
+                self._touch(workspace_id, operation_id, index, _BUSY.get(step["tool"], "در حال اجرا"))
                 result = self.runner.run(workspace_id, step, operation_id)
+                if result.cancelled or self._is_cancelled(workspace_id, operation_id):
+                    return self.get(workspace_id, operation_id)
                 for warning in result.warnings:
                     if not consistent(warning, result.metrics):
                         raise AppError("output.invalid", OPERATION_INVALID, 422)
@@ -167,7 +240,11 @@ class OperationService:
                 workspace_id,
                 self._failed(workspace_id, AppError("internal", INTERNAL, 500), operation_id, plan),
             )
-        record = self._base(workspace_id, operation_id, plan)
+        if self._is_cancelled(workspace_id, operation_id):
+            return self.get(workspace_id, operation_id)
+        if summary and plan.get("period") == "مهر":
+            summary = summary + _PERIOD_NOTE
+        record = self._load_or_base(workspace_id, operation_id, plan)
         record["status"] = "succeeded"
         record["progress_current"] = len(steps)
         record["progress_total"] = len(steps)
@@ -175,18 +252,186 @@ class OperationService:
         record["summary"] = summary
         record["warnings"] = warnings
         record["outputs"] = outputs
+        record["error"] = None
+        record["pending"] = None
+        record["finished_at"] = _now()
+        saved = self._save(workspace_id, record)
+        if saved["status"] != "succeeded":
+            return saved
         self._save_focus(
             workspace_id,
             {
                 "file_ids": _input_files(plan, steps),
                 "sheet_name": sheet_name,
                 "columns": [],
-                "last_plan_id": plan["id"],
+                "last_plan_id": operation_id,
                 "last_result_version_id": outputs[-1]["version_id"] if outputs else None,
-                "last_period_label": None,
+                "last_period_label": plan.get("period"),
             },
         )
-        return self._save(workspace_id, record)
+        return saved
+
+    def _start(self, workspace_id: str, plan: dict, steps: list[dict]) -> tuple[str, bool, threading.Thread]:
+        operation_id = plan["id"]
+        record = self._base(workspace_id, operation_id, plan)
+        record["progress_current"] = 0
+        record["progress_total"] = len(steps)
+        record["progress_label"] = "در حال اجرا"
+        record["outputs"] = []
+        self._save(workspace_id, record)
+        gate = threading.Event()
+        entered = threading.Event()
+        paused = False
+        if self._pause_next:
+            self._pause_next = False
+            paused = True
+        else:
+            gate.set()
+        worker = threading.Thread(
+            target=self._worker,
+            args=(workspace_id, plan, steps, operation_id, gate, entered),
+            daemon=True,
+            name=f"hesabdar-{operation_id[:8]}",
+        )
+        with self._gate_lock:
+            self._gates[operation_id] = gate
+            self._entered[operation_id] = entered
+            self._workers[operation_id] = worker
+        worker.start()
+        return operation_id, paused, worker
+
+    def _worker(
+        self,
+        workspace_id: str,
+        plan: dict,
+        steps: list[dict],
+        operation_id: str,
+        gate: threading.Event,
+        entered: threading.Event,
+    ) -> None:
+        entered.set()
+        try:
+            gate.wait()
+            if self._is_cancelled(workspace_id, operation_id):
+                return
+            self._execute(workspace_id, plan, steps, operation_id=operation_id)
+        except AppError as exc:
+            if not self._is_cancelled(workspace_id, operation_id):
+                self._save(workspace_id, self._failed(workspace_id, exc, operation_id, plan))
+        except Exception:
+            logger.exception("operation failed")
+            if not self._is_cancelled(workspace_id, operation_id):
+                self._save(
+                    workspace_id,
+                    self._failed(workspace_id, AppError("internal", INTERNAL, 500), operation_id, plan),
+                )
+
+    def _join_or_running(
+        self,
+        workspace_id: str,
+        operation_id: str,
+        paused: bool,
+        worker: threading.Thread,
+    ) -> dict:
+        entered = self._entered.get(operation_id)
+        if entered is not None:
+            entered.wait(timeout=10)
+        gate = self._gates.get(operation_id)
+        if paused and gate is not None and not gate.is_set():
+            return self.get(workspace_id, operation_id)
+        if worker is not threading.current_thread():
+            worker.join()
+        return self.get(workspace_id, operation_id)
+
+    def _wake(self, operation_id: str) -> None:
+        with self._gate_lock:
+            gate = self._gates.get(operation_id)
+            worker = self._workers.get(operation_id)
+        if gate is not None:
+            gate.set()
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=30)
+
+    def _period_plan(self, workspace_id: str, text: str, period: str) -> dict | None:
+        focus = self._focus(workspace_id)
+        previous_id = focus.get("last_plan_id")
+        if not previous_id:
+            return None
+        try:
+            previous = self._load(workspace_id, previous_id)
+        except AppError:
+            return None
+        steps = list((previous.get("plan") or {}).get("steps") or [])
+        if previous.get("status") != "succeeded" or not steps:
+            return None
+        plan = copy.deepcopy(previous["plan"])
+        plan["id"] = str(uuid.uuid4())
+        plan["workspace_id"] = workspace_id
+        plan["user_text"] = text
+        plan["steps"] = copy.deepcopy(steps)
+        plan["ambiguities"] = []
+        plan["requires_confirmation"] = False
+        plan["confirmation_reasons"] = []
+        plan["source"] = "rules"
+        plan["period"] = period
+        validate_plan(plan)
+        return plan
+
+    def _ask_report(self, workspace_id: str, text: str) -> dict:
+        plan = _blank_plan(workspace_id)
+        plan["user_text"] = text
+        ambiguity = {"code": "plan.ambiguous", "question": PLAN_NEED_REPORT, "choices": []}
+        plan["ambiguities"] = [ambiguity]
+        return self._save(workspace_id, self._waiting(workspace_id, plan, ambiguity))
+
+    def _is_cancelled(self, workspace_id: str, operation_id: str) -> bool:
+        try:
+            return self._load(workspace_id, operation_id)["status"] == "cancelled"
+        except AppError:
+            return False
+
+    def _touch(self, workspace_id: str, operation_id: str, current: int, label: str) -> None:
+        try:
+            record = self._load(workspace_id, operation_id)
+        except AppError:
+            return
+        if record["status"] != "running":
+            return
+        record["progress_current"] = current
+        record["progress_label"] = label
+        self._save(workspace_id, record)
+
+    def _find_running(self, workspace_id: str) -> dict | None:
+        with self.database.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT plan_json FROM operations
+                WHERE workspace_id = ? AND status = 'running'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (workspace_id,),
+            ).fetchone()
+        if row is None or not row["plan_json"]:
+            return None
+        record = json.loads(row["plan_json"])
+        worker = self._workers.get(record["id"])
+        if worker is not None and worker.is_alive():
+            return record
+        record["status"] = "failed"
+        record["progress_label"] = "انجام نشد"
+        record["summary"] = None
+        record["outputs"] = []
+        record["error"] = {"code": "internal", "message": "عملیات ناتمام ماند."}
+        record["finished_at"] = _now()
+        self._save(workspace_id, record)
+        return None
+
+    def _load_or_base(self, workspace_id: str, operation_id: str, plan: dict) -> dict:
+        try:
+            return self._load(workspace_id, operation_id)
+        except AppError:
+            return self._base(workspace_id, operation_id, plan)
 
     def _existing_files(self, workspace_id: str, file_ids: list[str] | None) -> list[str]:
         chosen = []
@@ -230,6 +475,7 @@ class OperationService:
     def _save(self, workspace_id: str, record: dict) -> dict:
         payload = json.dumps(record, ensure_ascii=False)
         error = record.get("error") or {}
+        blocked = False
         with self.database.transaction() as conn:
             existing = conn.execute("SELECT id FROM operations WHERE id = ?", (record["id"],)).fetchone()
             if existing is None:
@@ -253,11 +499,12 @@ class OperationService:
                     ),
                 )
             else:
-                conn.execute(
-                    """
+                guard = "" if record["status"] == "cancelled" else " AND status != 'cancelled'"
+                cursor = conn.execute(
+                    f"""
                     UPDATE operations
                     SET status = ?, plan_json = ?, summary = ?, finished_at = ?, error_code = ?, error_message = ?
-                    WHERE id = ? AND workspace_id = ?
+                    WHERE id = ? AND workspace_id = ?{guard}
                     """,
                     (
                         record["status"],
@@ -270,6 +517,15 @@ class OperationService:
                         workspace_id,
                     ),
                 )
+                if cursor.rowcount == 0:
+                    current = conn.execute(
+                        "SELECT status FROM operations WHERE id = ? AND workspace_id = ?",
+                        (record["id"], workspace_id),
+                    ).fetchone()
+                    if current is not None and current["status"] == "cancelled" and record["status"] != "cancelled":
+                        blocked = True
+        if blocked:
+            return _public(self._load(workspace_id, record["id"]))
         return _public(record)
 
     def _base(self, workspace_id: str, operation_id: str, plan: dict) -> dict:
