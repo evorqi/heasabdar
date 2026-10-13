@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ApiError,
   cancelOperation,
@@ -16,6 +16,28 @@ import { RECONCILE_TEXT } from "./quick";
 
 const PREVIEW_LIMIT = 200;
 
+const DERIVED_NAMES = new Set([
+  "فیلتر.xlsx",
+  "مرتب‌سازی.xlsx",
+  "ستون جدید.xlsx",
+  "محاسبه.xlsx",
+  "مغایرت.xlsx",
+  "رتبه.xlsx",
+  "روند.xlsx",
+  "پرت.xlsx",
+  "گزارش.xlsx",
+  "شاخص.xlsx",
+  "نمودار.xlsx",
+  "داشبورد.xlsx",
+  "فرمول.xlsx",
+]);
+
+function sourcePair(files: StoredFile[]): [string, string] {
+  const sources = files.filter((file) => !DERIVED_NAMES.has(file.original_name));
+  const pool = sources.length >= 2 ? sources : files;
+  return [pool[0]?.id ?? "", pool[1]?.id ?? pool[0]?.id ?? ""];
+}
+
 type Props = {
   workspaceId: string;
   files: StoredFile[];
@@ -23,13 +45,22 @@ type Props = {
 };
 
 export function Reconcile({ workspaceId, files, onChanged }: Props) {
-  const [leftId, setLeftId] = useState(files[0]?.id ?? "");
-  const [rightId, setRightId] = useState(files[1]?.id ?? files[0]?.id ?? "");
+  const initial = sourcePair(files);
+  const [leftId, setLeftId] = useState(initial[0]);
+  const [rightId, setRightId] = useState(initial[1]);
   const [picked, setPicked] = useState<string[]>([]);
   const [report, setReport] = useState<ReconcileReport | null>(null);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState(false);
+
+  useEffect(() => {
+    if (touched) return;
+    const [left, right] = sourcePair(files);
+    setLeftId(left);
+    setRightId(right);
+  }, [files, touched]);
 
   function toggle(column: string) {
     setPicked((current) =>
@@ -126,7 +157,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
   const shown = report?.rows.slice(0, PREVIEW_LIMIT) ?? [];
 
   return (
-    <article className="card stack">
+    <article className="card stack" id="reconcile">
       <div className="section-head">
         <h2>مغایرت</h2>
       </div>
@@ -137,6 +168,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
           <select
             value={leftId}
             onChange={(event) => {
+              setTouched(true);
               setLeftId(event.target.value);
               setReport(null);
               setOperation(null);
@@ -155,6 +187,7 @@ export function Reconcile({ workspaceId, files, onChanged }: Props) {
           <select
             value={rightId}
             onChange={(event) => {
+              setTouched(true);
               setRightId(event.target.value);
               setReport(null);
               setOperation(null);

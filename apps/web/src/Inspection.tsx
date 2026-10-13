@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { StructureReport } from "./api";
 import {
   headerStatusLabel,
+  isDateText,
   isTabularValue,
   kindLabel,
   roleLabel,
@@ -194,7 +195,11 @@ export function Inspection({ report, loading, error, onInspect }: Props) {
                           const raw = cell?.raw ?? "";
                           return (
                             <td key={column.index} className={isTabularValue(raw) ? "num" : undefined}>
-                              {isTabularValue(raw) ? <bdi dir="ltr">{raw}</bdi> : raw}
+                              {isTabularValue(raw) ? (
+                                <bdi dir={isDateText(raw) ? undefined : "ltr"}>{raw}</bdi>
+                              ) : (
+                                raw
+                              )}
                             </td>
                           );
                         })}

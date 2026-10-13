@@ -8,6 +8,7 @@ import {
   formatSize,
   headerStatusLabel,
   isTabularValue,
+  isDateText,
   kindLabel,
   matchLabel,
   operationLooksSuccessful,
@@ -73,6 +74,9 @@ describe("format", () => {
     expect(isTabularValue("=C2*2")).toBe(true);
     expect(isTabularValue("سارا احمدی")).toBe(false);
     expect(isTabularValue("20 مهر 1405")).toBe(false);
+    expect(isDateText("1404-07-01")).toBe(true);
+    expect(isDateText("1403/07/20")).toBe(true);
+    expect(isDateText("0012345678")).toBe(false);
   });
 
   test("formats timestamps without throwing", () => {

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ApiError,
   cancelOperation,
@@ -33,6 +33,12 @@ export function Chat({ workspaceId, files, selectedId, onChanged }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const logRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const log = logRef.current;
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [turns]);
 
   function idsFor(action: QuickAction): string[] {
     if (action.files === "pair") {
@@ -130,20 +136,31 @@ export function Chat({ workspaceId, files, selectedId, onChanged }: Props) {
         <h2>گفتگو</h2>
       </div>
       <div className="quick-actions">
-        {QUICK_ACTIONS.map((action) => (
-          <button
-            key={action.label}
-            className="btn btn-secondary"
-            type="button"
-            disabled={busy}
-            onClick={() => void run(action.text, idsFor(action))}
-          >
-            {action.label}
-          </button>
-        ))}
+        {QUICK_ACTIONS.map((action) => {
+          const needsFile = action.files === "one" && !selectedId;
+          const needsPair = action.files === "pair" && files.length < 2;
+          return (
+            <button
+              key={action.label}
+              className="btn btn-secondary"
+              type="button"
+              disabled={busy || needsFile || needsPair}
+              title={needsFile ? "اول یک فایل را از فهرست انتخاب کنید." : needsPair ? "برای مغایرت دو فایل لازم است." : undefined}
+              onClick={() => {
+                if (action.files === "pair" && files.length !== 2) {
+                  document.getElementById("reconcile")?.scrollIntoView({ block: "start" });
+                  return;
+                }
+                void run(action.text, idsFor(action));
+              }}
+            >
+              {action.label}
+            </button>
+          );
+        })}
       </div>
       {turns.length > 0 ? (
-        <div className="chat-log">
+        <div className="chat-log" ref={logRef}>
           {turns.map((turn) =>
             turn.role === "user" ? (
               <p key={turn.key} className="chat-bubble is-user">
@@ -200,6 +217,7 @@ function Result({
   onConfirm: (column: string | null, keyColumns: string[]) => void;
   onCancel: () => void;
 }) {
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const operation = turn.operation;
   const ok = Boolean(operation && operationLooksSuccessful(operation.status) && operation.error == null);
   const choices = operation?.plan.ambiguities?.[0]?.choices ?? [];
@@ -293,12 +311,21 @@ function Result({
               key={output.version_id}
               className="btn btn-secondary"
               type="button"
-              onClick={() => void downloadVersion(workspaceId, output.version_id, output.name)}
+              onClick={() => {
+                void downloadVersion(workspaceId, output.version_id, output.name).catch((caught: unknown) => {
+                  setDownloadError(caught instanceof Error ? caught.message : "دریافت فایل انجام نشد.");
+                });
+              }}
             >
               دریافت <bdi>{output.name}</bdi>
             </button>
           ))
         : null}
+      {downloadError ? (
+        <p className="alert" role="alert">
+          {downloadError}
+        </p>
+      ) : null}
     </div>
   );
 }

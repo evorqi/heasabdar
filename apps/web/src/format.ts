@@ -138,6 +138,13 @@ export function isTabularValue(raw: string | null): boolean {
   return /^[0-9۰-۹٠-٩+\-.,٬،%/]+$/.test(raw);
 }
 
+export function isDateText(raw: string | null): boolean {
+  if (!raw) return false;
+  const text = raw.trim();
+  if (/^[0-9۰-۹٠-٩]{4}[-/][0-9۰-۹٠-٩]{1,2}[-/][0-9۰-۹٠-٩]{1,2}$/.test(text)) return true;
+  return /^[0-9۰-۹٠-٩]{1,2}\s+\S+\s+[0-9۰-۹٠-٩]{4}$/.test(text);
+}
+
 function trimNumber(value: number): string {
   const rounded = value.toFixed(1);
   return rounded.endsWith(".0") ? rounded.slice(0, -2) : rounded;
