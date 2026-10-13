@@ -301,6 +301,7 @@ export type Operation = {
   warnings: string[];
   error: { code: string; message: string } | null;
   outputs: OperationOutput[];
+  cards?: { name: string; label: string; value: string; unit: string; hypothesis: boolean }[];
   plan: {
     id: string;
     goal: string;

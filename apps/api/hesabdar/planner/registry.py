@@ -10,5 +10,11 @@ TOOLS = frozenset(
         "sort",
         "add_column",
         "compute_column",
+        "aggregate",
+        "rank",
+        "trend",
+        "outliers",
+        "kpi",
+        "report",
     }
 )

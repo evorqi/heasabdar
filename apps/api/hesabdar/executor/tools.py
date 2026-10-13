@@ -4,15 +4,19 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from hesabdar.analysis.engine import analyze, present, role_columns
 from hesabdar.cleaning.service import CleaningService
 from hesabdar.errors import AppError
 from hesabdar.files.service import FileService
 from hesabdar.files.workbook import write_workbook
 from hesabdar.inspection.service import InspectionService
+from hesabdar.inspection.readers import read_workbook
 from hesabdar.messages import (
     CLEAN_SUCCEEDED,
     OPERATION_INVALID,
+    PLAN_NEED_CITY,
     PLAN_NEED_COLUMN,
+    PLAN_NEED_DATE,
     PLAN_NO_AMOUNT,
     RECONCILE_QUESTION,
 )
@@ -32,6 +36,7 @@ class StepResult:
     waiting: dict | None = None
     sheet_name: str | None = None
     cancelled: bool = False
+    cards: list[dict] = field(default_factory=list)
 
 
 class _Stopped(Exception):
@@ -80,6 +85,8 @@ class ToolRunner:
             return self._compute(workspace_id, params, operation_id)
         if tool == "reconcile":
             return self._reconcile(workspace_id, params, operation_id)
+        if tool in {"aggregate", "rank", "trend", "outliers", "kpi", "report"}:
+            return self._analysis(workspace_id, params, operation_id, tool)
         raise AppError("plan.unknown_tool", "این برنامه پذیرفته نشد.", 422)
 
     def _inspect(self, workspace_id: str, file_id: str) -> StepResult:
@@ -279,6 +286,63 @@ class ToolRunner:
             metrics=metrics,
         )
 
+    def _analysis(self, workspace_id: str, params: dict, operation_id: str, tool: str) -> StepResult:
+        meta, table = load_sheet(self.files, workspace_id, params["file_id"])
+        column, waiting = _choose_amount(table, params)
+        if waiting:
+            waiting["pending"] = {"type": "column", "field": "column", "step": _step(tool, params), "choices": waiting["choices"]}
+            return StepResult(waiting=waiting, sheet_name=table["sheet"])
+        for role, field_name, question in (
+            ("city", "city", PLAN_NEED_CITY),
+            ("date", "date", PLAN_NEED_DATE),
+        ):
+            if tool == "rank" and role == "date":
+                continue
+            if tool == "trend" and role == "city":
+                continue
+            if tool in {"aggregate", "kpi", "outliers"}:
+                continue
+            chosen, waiting = _choose_role(table, params, tool, role, field_name, question)
+            if waiting:
+                return StepResult(waiting=waiting, sheet_name=table["sheet"])
+            if chosen:
+                table = _pin_role(table, role, chosen)
+        view = present(analyze(table, column), tool)
+        if view["blocked"]:
+            return StepResult(
+                waiting={"question": view["blocked"], "choices": [], "pending": None},
+                sheet_name=table["sheet"],
+            )
+        stored = self._save_analysis(workspace_id, meta, view, operation_id)
+        return StepResult(
+            summary=view["summary"],
+            warnings=view["warnings"],
+            outputs=[stored],
+            metrics=view["metrics"],
+            cards=view["cards"],
+            sheet_name=table["sheet"],
+        )
+
+    def _save_analysis(self, workspace_id: str, meta: dict, view: dict, operation_id: str) -> dict:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        data = write_workbook(view["sheets"], "xlsx")
+        _assert_analysis(data, view["cards"], [sheet["name"] for sheet in view["sheets"]])
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        stored = self.files.add_output_file(
+            workspace_id,
+            view["filename"],
+            data,
+            kind="analysis",
+            note="تحلیل",
+            parent_version_id=meta["current_version_id"],
+            operation_id=operation_id,
+            row_count=len(view["cards"]),
+            sheet_count=len(view["sheets"]),
+        )
+        return {"file_id": stored["id"], "version_id": stored["current_version_id"], "name": stored["original_name"]}
+
     def _save(
         self,
         workspace_id: str,
@@ -327,3 +391,46 @@ def _choose_amount(table: dict, params: dict) -> tuple[str | None, dict | None]:
 
 def _step(tool: str, params: dict) -> dict:
     return {"tool": tool, "params": dict(params), "reads": [params["file_id"]], "writes": ["result"]}
+
+
+def _choose_role(table: dict, params: dict, tool: str, role: str, field_name: str, question: str):
+    columns = role_columns(table, role)
+    chosen = params.get(field_name)
+    if chosen:
+        if chosen not in table["headers"]:
+            raise AppError("request.invalid", "درخواست نامعتبر است.", 400)
+        return chosen, None
+    if len(columns) <= 1:
+        return columns[0] if columns else None, None
+    return None, {
+        "question": question,
+        "choices": columns[:20],
+        "pending": {"type": "column", "field": field_name, "step": _step(tool, params), "choices": columns[:20]},
+    }
+
+
+def _pin_role(table: dict, role: str, chosen: str) -> dict:
+    roles = dict(table["roles"])
+    for name in role_columns(table, role):
+        if name != chosen:
+            roles[name] = None
+    return {**table, "roles": roles}
+
+
+def _assert_analysis(data: bytes, cards: list[dict], names: list[str]) -> None:
+    try:
+        read = read_workbook(data, "xlsx", "گزارش.xlsx")
+    except AppError:
+        raise AppError("output.invalid", OPERATION_INVALID, 422) from None
+    found = [sheet.name for sheet in read.sheets]
+    if found != names or not found:
+        raise AppError("output.invalid", OPERATION_INVALID, 422)
+    if not cards:
+        return
+    metric_sheet = next(sheet for sheet in read.sheets if sheet.name == "شاخص‌ها")
+    values = []
+    for row in metric_sheet.rows[1:]:
+        cell = row[1] if len(row) > 1 else None
+        values.append(None if cell is None else cell.raw)
+    if values != [card["value"] for card in cards]:
+        raise AppError("output.invalid", OPERATION_INVALID, 422)

@@ -5,6 +5,12 @@ export const RECONCILE_TEXT = "این دو فایل را تطبیق بده، ا�
 export const INSPECT_TEXT = "ساختار فایل را بررسی کن";
 export const PREVIEW_TEXT = "پیش\u200cنمایش این فایل";
 export const CLEAN_TEXT = "این فایل را پاکسازی کن";
+export const RANK_TEXT = "بیشترین فروش متعلق به کدام شهر است";
+export const REPORT_TEXT = "یک گزارش مدیریتی بساز";
+export const TREND_TEXT = "روند فروش را حساب کن";
+export const OUTLIER_TEXT = "مقدارهای پرت مبلغ را نشان بده";
+export const KPI_TEXT = "شاخص‌های مبلغ را حساب کن";
+export const AGGREGATE_TEXT = "مجموع و میانگین مبلغ را حساب کن";
 
 export type QuickAction = {
   label: string;
@@ -20,4 +26,10 @@ export const QUICK_ACTIONS: QuickAction[] = [
   { label: "فیلتر فروش", text: FILTER_TEXT, files: "one" },
   { label: "درصد اختلاف", text: COMPUTE_TEXT, files: "one" },
   { label: "مغایرت", text: RECONCILE_TEXT, files: "pair" },
+  { label: "رتبه شهر", text: RANK_TEXT, files: "one" },
+  { label: "گزارش مدیریتی", text: REPORT_TEXT, files: "one" },
+  { label: "روند", text: TREND_TEXT, files: "one" },
+  { label: "پرت", text: OUTLIER_TEXT, files: "one" },
+  { label: "شاخص‌ها", text: KPI_TEXT, files: "one" },
+  { label: "مجموع و میانگین", text: AGGREGATE_TEXT, files: "one" },
 ];

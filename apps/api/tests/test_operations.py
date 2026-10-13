@@ -29,9 +29,10 @@ REPEAT_TEXT = "همین گزارش را برای مهر هم بساز"
 
 def test_registry_stops_before_later_tools() -> None:
     assert {"filter", "sort", "add_column", "compute_column", "reconcile", "inspect", "clean"} <= TOOLS
-    assert "rank" not in TOOLS
+    assert {"aggregate", "rank", "trend", "outliers", "kpi", "report"} <= TOOLS
     assert "shell" not in TOOLS
     assert "chart" not in TOOLS
+    assert "dashboard" not in TOOLS
 
 
 def test_benchmark_sentences_reach_their_tools() -> None:
@@ -44,8 +45,13 @@ def test_benchmark_sentences_reach_their_tools() -> None:
     assert vague["ambiguities"][0]["code"] == "plan.ambiguous"
     assert vague["ambiguities"][0]["question"]
     rank = build_plan(RANK_TEXT, "w", ["f"])
-    assert rank["steps"] == []
-    assert rank["goal"] == ""
+    assert rank["goal"] == "rank"
+    assert [step["tool"] for step in rank["steps"]] == ["inspect", "rank"]
+    report = build_plan("یک گزارش مدیریتی بساز", "w", ["f"])
+    assert report["goal"] == "report"
+    trend = build_plan("روند فروش ماهانه را نشان بده", "w", ["f"])
+    assert trend["goal"] == "trend"
+    assert all(step["tool"] != "chart" for step in trend["steps"])
 
 
 def test_shell_plan_and_foreign_numbers_are_rejected(tmp_path) -> None:
@@ -114,8 +120,10 @@ def test_filter_count_matches_an_independent_count(client: TestClient) -> None:
     assert ranked.status_code == 200, ranked.text
     assert ranked.json()["status"] == "waiting_confirmation"
     assert ranked.json()["outputs"] == []
-    assert ranked.json()["plan"]["steps"] == []
-    assert "rank" not in ranked.text
+    assert ranked.json()["plan"]["goal"] == "rank"
+    assert "ستون شهر" in ranked.json()["summary"]
+    assert "chart" not in ranked.text
+    assert "رتبه.xlsx" not in _names(client, workspace["id"])
 
 
 def test_sort_uses_the_saved_file_and_keeps_every_row(client: TestClient) -> None:

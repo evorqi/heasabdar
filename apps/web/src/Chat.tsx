@@ -233,6 +233,20 @@ function Result({
           </button>
         </div>
       ) : null}
+      {ok && operation?.cards?.length ? (
+        <ul className="metric-cards">
+          {operation.cards.map((card) => (
+            <li key={card.name} className="metric-card">
+              <span>
+                {card.label}
+                {card.hypothesis ? <span className="pill pill-hypothesis">احتمال</span> : null}
+              </span>
+              <strong>{/^[0-9.+-]+$/.test(card.value) ? <bdi>{card.value}</bdi> : card.value}</strong>
+              {card.unit ? <span className="muted">{card.unit}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {operation?.warnings?.map((warning) => (
         <p key={warning} className="muted">
           {warning}
@@ -240,7 +254,7 @@ function Result({
       ))}
       {waiting && choices.length > 0 ? (
         <fieldset className="choices">
-          <legend>{goal === "reconcile" ? "ستون کلید" : "ستون مبلغ"}</legend>
+          <legend>{goal === "reconcile" ? "ستون کلید" : operation?.summary || "انتخاب"}</legend>
           {choices.map((choice) => (
             <label key={choice}>
               <input

@@ -49,6 +49,12 @@ _DONE = {
     "clean": "پاک‌سازی انجام شد",
     "inspect": "بررسی انجام شد",
     "preview": "پیش‌نمایش آماده است",
+    "aggregate": "شاخص‌ها آماده است",
+    "rank": "رتبه آماده است",
+    "trend": "روند آماده است",
+    "outliers": "بررسی پرت انجام شد",
+    "kpi": "شاخص‌ها آماده است",
+    "report": "گزارش آماده است",
 }
 _BUSY = {
     "filter": "در حال فیلتر",
@@ -59,6 +65,12 @@ _BUSY = {
     "clean": "در حال پاک‌سازی",
     "inspect": "در حال بررسی",
     "preview": "در حال پیش‌نمایش",
+    "aggregate": "در حال محاسبه شاخص",
+    "rank": "در حال رتبه‌بندی",
+    "trend": "در حال روند",
+    "outliers": "در حال بررسی پرت",
+    "kpi": "در حال شاخص",
+    "report": "در حال گزارش",
 }
 _PERIOD_NOTE = " این نتیجه برای مهر است."
 
@@ -166,7 +178,7 @@ class OperationService:
                 if not column or column not in pending["choices"]:
                     raise AppError("request.invalid", REQUEST_INVALID, 400)
                 step = pending["step"]
-                step["params"]["column"] = column
+                step["params"][pending.get("field") or "column"] = column
                 return self._execute(workspace_id, record["plan"], [step], operation_id=record["id"])
             return _public(record)
 
@@ -196,6 +208,7 @@ class OperationService:
         summary = None
         warnings: list[str] = []
         outputs: list[dict] = []
+        cards: list[dict] = []
         sheet_name = None
         try:
             validate_plan({"steps": steps})
@@ -229,6 +242,8 @@ class OperationService:
                     summary = result.summary
                 warnings.extend(result.warnings)
                 outputs.extend(result.outputs)
+                if result.cards:
+                    cards = result.cards
                 sheet_name = result.sheet_name or sheet_name
         except AppError as exc:
             if exc.status_code in {400, 404}:
@@ -252,6 +267,7 @@ class OperationService:
         record["summary"] = summary
         record["warnings"] = warnings
         record["outputs"] = outputs
+        record["cards"] = cards
         record["error"] = None
         record["pending"] = None
         record["finished_at"] = _now()
@@ -540,6 +556,7 @@ class OperationService:
             "warnings": [],
             "error": None,
             "outputs": [],
+            "cards": [],
             "plan": plan,
             "llm_status": llm_status(self.settings),
             "pending": None,

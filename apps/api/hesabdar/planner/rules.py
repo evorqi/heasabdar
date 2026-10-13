@@ -73,6 +73,18 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
 
 def _signal(normal: str) -> str | None:
     found = []
+    if "گزارش مدیریتی" in normal:
+        found.append("report")
+    if "بیشترین" in normal and ("فروش" in normal or "شهر" in normal or "مبلغ" in normal):
+        found.append("rank")
+    if "روند" in normal:
+        found.append("trend")
+    if "پرت" in normal:
+        found.append("outliers")
+    if "شاخص" in normal and "گزارش مدیریتی" not in normal:
+        found.append("kpi")
+    if any(word in normal for word in ("مجموع", "میانگین", "میانه")) and "گزارش مدیریتی" not in normal and "بیشترین" not in normal:
+        found.append("aggregate")
     if "درصد اختلاف" in normal:
         found.append("compute_column")
     if "تطبیق" in normal or "مغایرت" in normal:
@@ -120,7 +132,7 @@ def _params(tool: str, normal: str, file_ids: list[str]) -> tuple[str | None, di
         if not name or len(name) > 40 or looks_like_code(name):
             return None, {"question": PLAN_QUESTION}
         return tool, {"file_id": file_id, "name": name}
-    if tool in {"clean", "preview", "inspect"}:
+    if tool in {"clean", "preview", "inspect", "aggregate", "rank", "trend", "outliers", "kpi", "report"}:
         return tool, {"file_id": file_id}
     return None, {"question": PLAN_QUESTION}
 
