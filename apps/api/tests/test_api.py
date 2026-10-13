@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
-from hesabdar.config import DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_MAX_UNCOMPRESSED_BYTES, Settings
+from hesabdar.config import DEFAULT_MAX_FILES, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_MAX_UNCOMPRESSED_BYTES, Settings
 from hesabdar.main import create_app
 from hesabdar.messages import FILE_CORRUPT_EXCEL
 from tests.samples import make_csv, make_xls, make_xlsx
@@ -26,7 +26,8 @@ def upload(client: TestClient, workspace_id: str, parts: list[tuple[str, bytes]]
 def test_default_limits_are_the_design_targets() -> None:
     settings = Settings(data_dir=__import__("pathlib").Path("data"))
     assert settings.max_upload_bytes == DEFAULT_MAX_UPLOAD_BYTES == 30 * 1024 * 1024
-    assert settings.max_uncompressed_bytes == DEFAULT_MAX_UNCOMPRESSED_BYTES
+    assert settings.max_uncompressed_bytes == DEFAULT_MAX_UNCOMPRESSED_BYTES == 200 * 1024 * 1024
+    assert settings.max_files_per_upload == DEFAULT_MAX_FILES == 20
 
 
 def test_workspace_flow_and_no_public_listing(client: TestClient) -> None:

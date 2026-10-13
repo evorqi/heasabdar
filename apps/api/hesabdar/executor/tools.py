@@ -14,6 +14,7 @@ from hesabdar.files.workbook import write_workbook
 from hesabdar.formulas.live import assert_live_formulas, percent_formula
 from hesabdar.inspection.service import InspectionService
 from hesabdar.inspection.readers import read_workbook
+from hesabdar.validation.limits import assert_complete
 from hesabdar.messages import (
     CLEAN_SUCCEEDED,
     OPERATION_INVALID,
@@ -673,7 +674,9 @@ class ToolRunner:
     def _load_book(self, workspace_id: str, file_id: str):
         meta = self.files.get_file(workspace_id, file_id)
         _record, data = self.files.read_version(workspace_id, meta["current_version_id"])
-        return meta, data, read_workbook(data, meta["format"], meta["original_name"])
+        read = read_workbook(data, meta["format"], meta["original_name"])
+        assert_complete(read)
+        return meta, data, read
 
     def _store_new(
         self,

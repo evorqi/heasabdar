@@ -11,6 +11,7 @@ from hesabdar.errors import AppError
 from hesabdar.files.service import FileService
 from hesabdar.files.workbook import write_workbook
 from hesabdar.inspection.readers import read_workbook
+from hesabdar.validation.limits import assert_complete
 from hesabdar.messages import CLEAN_SUCCEEDED, CLEAN_UNCHANGED, CLEAN_WAITING, OUTPUT_INVALID
 
 _GUARD = threading.Lock()
@@ -74,6 +75,7 @@ class CleaningService:
         meta = self.files.get_file(workspace_id, file_id)
         _record, data = self.files.read_version(workspace_id, meta["current_version_id"])
         read = read_workbook(data, meta["format"], meta["original_name"])
+        assert_complete(read)
         plan = plan_cleaning(read, meta["format"])
         if plan["stats"]["change_count"] != len(plan["changes"]):
             raise AppError("output.invalid", OUTPUT_INVALID, 422)

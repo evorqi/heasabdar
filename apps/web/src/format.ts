@@ -138,6 +138,11 @@ export function isTabularValue(raw: string | null): boolean {
   return /^[0-9۰-۹٠-٩+\-.,٬،%/]+$/.test(raw);
 }
 
+export function isEmailText(raw: string | null): boolean {
+  if (!raw) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.trim());
+}
+
 export function isDateText(raw: string | null): boolean {
   if (!raw) return false;
   const text = raw.trim();

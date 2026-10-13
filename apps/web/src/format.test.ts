@@ -9,6 +9,7 @@ import {
   headerStatusLabel,
   isTabularValue,
   isDateText,
+  isEmailText,
   kindLabel,
   matchLabel,
   operationLooksSuccessful,
@@ -80,6 +81,9 @@ describe("format", () => {
     expect(isDateText("1404-07-01")).toBe(true);
     expect(isDateText("1403/07/20")).toBe(true);
     expect(isDateText("0012345678")).toBe(false);
+    expect(isEmailText("user@example.com")).toBe(true);
+    expect(isEmailText("پاسخ را به user@example.com بفرستید.")).toBe(false);
+    expect(isEmailText("1403/07/20")).toBe(false);
   });
 
   test("formats timestamps without throwing", () => {

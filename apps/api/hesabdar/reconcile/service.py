@@ -12,6 +12,7 @@ from hesabdar.files.service import FileService
 from hesabdar.files.workbook import write_workbook
 from hesabdar.inspection.build import build_report
 from hesabdar.inspection.readers import read_workbook
+from hesabdar.validation.limits import assert_complete
 from hesabdar.messages import (
     RECONCILE_INVALID,
     RECONCILE_KEY_MISSING,
@@ -187,6 +188,7 @@ class ReconcileService:
 def _table(files: FileService, workspace_id: str, meta: dict) -> dict:
     _record, data = files.read_version(workspace_id, meta["current_version_id"])
     read = read_workbook(data, meta["format"], meta["original_name"])
+    assert_complete(read)
     built = build_report(read, meta["id"], meta["current_version_id"], meta["format"])
     if not built["sheets"]:
         raise AppError("request.invalid", REQUEST_INVALID, 400)

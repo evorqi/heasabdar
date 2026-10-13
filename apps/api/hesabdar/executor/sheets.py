@@ -9,12 +9,14 @@ from hesabdar.inspection.readers import read_workbook
 from hesabdar.messages import OPERATION_INVALID, REQUEST_INVALID
 from hesabdar.reconcile.engine import load_table
 from hesabdar.reconcile.normalize import header_key, parse_amount
+from hesabdar.validation.limits import assert_complete
 
 
 def load_sheet(files: FileService, workspace_id: str, file_id: str) -> tuple[dict, dict]:
     meta = files.get_file(workspace_id, file_id)
     _record, data = files.read_version(workspace_id, meta["current_version_id"])
     read = read_workbook(data, meta["format"], meta["original_name"])
+    assert_complete(read)
     built = build_report(read, file_id, meta["current_version_id"], meta["format"])
     if not built["sheets"]:
         raise AppError("request.invalid", REQUEST_INVALID, 400)

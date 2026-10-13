@@ -3,6 +3,7 @@ import type { StructureReport } from "./api";
 import {
   headerStatusLabel,
   isDateText,
+  isEmailText,
   isTabularValue,
   kindLabel,
   roleLabel,
@@ -18,6 +19,32 @@ function MarkedText({ text }: { text: string }) {
     <>
       {parts.map((part, index) =>
         part.startsWith("#") || part.startsWith("=") ? (
+          <bdi key={index} dir="ltr">
+            {part}
+          </bdi>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function CellText({ raw }: { raw: string }) {
+  if (isEmailText(raw)) {
+    return <bdi dir="ltr">{raw}</bdi>;
+  }
+  if (isTabularValue(raw)) {
+    return <bdi dir={isDateText(raw) ? undefined : "ltr"}>{raw}</bdi>;
+  }
+  if (!raw.includes("@")) {
+    return raw;
+  }
+  const parts = raw.split(/([^\s@]+@[^\s@]+\.[^\s@]+)/);
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.includes("@") ? (
           <bdi key={index} dir="ltr">
             {part}
           </bdi>
@@ -195,11 +222,7 @@ export function Inspection({ report, loading, error, onInspect }: Props) {
                           const raw = cell?.raw ?? "";
                           return (
                             <td key={column.index} className={isTabularValue(raw) ? "num" : undefined}>
-                              {isTabularValue(raw) ? (
-                                <bdi dir={isDateText(raw) ? undefined : "ltr"}>{raw}</bdi>
-                              ) : (
-                                raw
-                              )}
+                              <CellText raw={raw} />
                             </td>
                           );
                         })}
