@@ -28,6 +28,7 @@ from hesabdar.messages import (
     PLAN_NO_CITY,
     PLAN_NO_DATE,
     PLAN_MACRO,
+    PLAN_NO_VERSION,
     PLAN_PIVOT,
     CONFIRM_REWRITE,
     MACRO_DROPPED,
@@ -54,6 +55,7 @@ class StepResult:
     cards: list[dict] = field(default_factory=list)
     charts: list[dict] = field(default_factory=list)
     evaluation: str | None = None
+    change: dict | None = None
 
 
 class _Stopped(Exception):
@@ -112,6 +114,8 @@ class ToolRunner:
             return self._formula(workspace_id, params, operation_id)
         if tool == "create_workbook":
             return self._create_workbook(workspace_id, params, operation_id)
+        if tool == "restore_version":
+            return self._restore(workspace_id, params)
         if tool == "file_merge":
             return self._file_merge(workspace_id, params, operation_id)
         if tool in {
@@ -543,6 +547,34 @@ class ToolRunner:
             sheet_name=table["sheet"],
         )
 
+    def _restore(self, workspace_id: str, params: dict) -> StepResult:
+        meta = self.files.get_file(workspace_id, params["file_id"])
+        versions = self.files.list_versions(workspace_id, params["file_id"])
+        chosen = _restore_target(versions, meta["current_version_id"], params.get("target") or "previous")
+        if chosen is None:
+            return StepResult(waiting={"question": PLAN_NO_VERSION, "choices": [], "pending": None})
+        restored = self.files.point_at_version(workspace_id, params["file_id"], chosen["id"])
+        return StepResult(
+            summary="نسخه جاری به نسخه انتخاب‌شده برگشت.",
+            outputs=[
+                {
+                    "file_id": restored["id"],
+                    "version_id": restored["current_version_id"],
+                    "name": restored["original_name"],
+                }
+            ],
+            change={
+                "rows_before": None,
+                "columns_before": None,
+                "sheets_before": None,
+                "rows_after": None,
+                "columns_after": None,
+                "sheets_after": None,
+                "sha256_before": meta["sha256"],
+                "sha256_after": restored["sha256"],
+            },
+        )
+
     def _create_workbook(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
         built = build_management(params.get("text") or "")
         return self._finish_structure(workspace_id, params, operation_id, "create_workbook", built, None, [], "مدیریت فروش.xlsx")
@@ -766,6 +798,20 @@ _OUTPUT_NAMES = {
     "data_validation": "ساختار.xlsx",
     "export": "خروجی.csv",
 }
+
+
+def _restore_target(versions: list[dict], current_id: str, target: str) -> dict | None:
+    if target == "original":
+        chosen = next((item for item in versions if item["kind"] == "original"), None)
+    else:
+        ids = [item["id"] for item in versions]
+        if current_id not in ids:
+            return None
+        index = ids.index(current_id)
+        chosen = versions[index - 1] if index > 0 else None
+    if chosen is None or chosen["id"] == current_id:
+        return None
+    return chosen
 
 
 def _views(read) -> list[dict]:

@@ -64,7 +64,7 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
     if tool is None:
         return _ask(plan, params["question"])
     reads = [] if tool == "create_workbook" else list(file_ids)
-    if tool not in {"inspect", "preview", "create_workbook"}:
+    if tool not in {"inspect", "preview", "create_workbook", "restore_version"}:
         targets = file_ids if tool in {"reconcile", "file_merge"} else file_ids[:1]
         for file_id in targets:
             plan["steps"].append(_step("inspect", {"file_id": file_id}, [file_id], []))
@@ -89,6 +89,8 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
 
 def _signal(normal: str) -> str | None:
     found = []
+    if "نسخه" in normal and any(word in normal for word in ("برگرد", "بازگرد", "قبلی", "اصل")):
+        found.append("restore_version")
     if "فایل مدیریت" in normal:
         found.append("create_workbook")
     elif "داشبورد" in normal:
@@ -178,6 +180,11 @@ def _signal(normal: str) -> str | None:
 def _params(tool: str, normal: str, file_ids: list[str]) -> tuple[str | None, dict]:
     if tool == "create_workbook":
         return tool, {"text": normal}
+    if tool == "restore_version":
+        if len(file_ids) != 1:
+            return None, {"question": PLAN_NEED_FILE}
+        target = "original" if "اصل" in normal else "previous"
+        return tool, {"file_id": file_ids[0], "target": target}
     if tool == "reconcile":
         if len(file_ids) != 2:
             return None, {"question": PLAN_NEED_FILES}

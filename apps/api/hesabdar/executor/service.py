@@ -26,6 +26,7 @@ from hesabdar.planner.explain import consistent
 from hesabdar.planner.llm import llm_status
 from hesabdar.planner.rules import build_plan, repeat_period
 from hesabdar.planner.validate import validate_plan
+from hesabdar.validation.report import change_report, measure
 from hesabdar.reconcile.service import ReconcileService
 
 logger = logging.getLogger("hesabdar.executor")
@@ -62,6 +63,7 @@ _DONE = {
     "sheet_merge": "برگه‌ها ادغام شد",
     "file_merge": "فایل‌ها ادغام شد",
     "export": "خروجی csv آماده است",
+    "restore_version": "نسخه برگشت",
 }
 _BUSY = {
     "filter": "در حال فیلتر",
@@ -85,6 +87,7 @@ _BUSY = {
     "sheet_merge": "در حال ادغام",
     "file_merge": "در حال ادغام فایل",
     "export": "در حال خروجی csv",
+    "restore_version": "در حال بازگشت",
 }
 _PERIOD_NOTE = " این نتیجه برای مهر است."
 
@@ -108,6 +111,31 @@ class OperationService:
         self._gates: dict[str, threading.Event] = {}
         self._entered: dict[str, threading.Event] = {}
         self._workers: dict[str, threading.Thread] = {}
+        self.fail_interrupted()
+
+    def fail_interrupted(self) -> None:
+        with self.database.transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, workspace_id, plan_json FROM operations WHERE status = 'running'"
+            ).fetchall()
+        for row in rows:
+            if not row["plan_json"]:
+                continue
+            record = json.loads(row["plan_json"])
+            worker = self._workers.get(record["id"])
+            if worker is not None and worker.is_alive():
+                continue
+            record["status"] = "failed"
+            record["summary"] = None
+            record["outputs"] = []
+            record["warnings"] = []
+            record["cards"] = []
+            record["charts"] = []
+            record["change"] = None
+            record["error"] = {"code": "internal", "message": "عملیات ناتمام ماند."}
+            record["progress_label"] = "انجام نشد"
+            record["finished_at"] = _now()
+            self._save(row["workspace_id"], record)
 
     def arm_pause(self) -> None:
         self._pause_next = True
@@ -217,6 +245,33 @@ class OperationService:
         self.files.get_workspace(workspace_id)
         return _public(self._load(workspace_id, operation_id))
 
+    def _change_report(self, workspace_id: str, outputs: list[dict]) -> dict | None:
+        if not outputs:
+            return None
+        version_id = outputs[-1].get("version_id")
+        if not version_id:
+            return None
+        try:
+            version = self.files.get_version(workspace_id, version_id)
+            _meta, after_bytes = self.files.read_version(workspace_id, version_id)
+        except AppError:
+            return None
+        after = measure(after_bytes, version["format"], version["original_name"])
+        before = None
+        sha_before = None
+        parent_id = version.get("parent_version_id")
+        if parent_id:
+            try:
+                parent = self.files.get_version(workspace_id, parent_id)
+                _parent_meta, before_bytes = self.files.read_version(workspace_id, parent_id)
+            except AppError:
+                parent = None
+                before_bytes = b""
+            if parent is not None:
+                before = measure(before_bytes, parent["format"], parent["original_name"])
+                sha_before = parent["sha256"]
+        return change_report(before, after, sha_before, version["sha256"])
+
     def _execute(self, workspace_id: str, plan: dict, steps: list[dict], operation_id: str | None = None) -> dict:
         operation_id = operation_id or plan["id"]
         summary = None
@@ -226,6 +281,7 @@ class OperationService:
         charts: list[dict] = []
         evaluation = None
         sheet_name = None
+        change = None
         parts: list[str] = []
         try:
             validate_plan({"steps": steps})
@@ -266,6 +322,8 @@ class OperationService:
                 charts.extend(result.charts)
                 if result.evaluation:
                     evaluation = result.evaluation
+                if result.change:
+                    change = result.change
                 sheet_name = result.sheet_name or sheet_name
         except AppError as exc:
             if exc.status_code in {400, 404}:
@@ -294,6 +352,7 @@ class OperationService:
         record["cards"] = cards
         record["charts"] = charts
         record["evaluation"] = evaluation
+        record["change"] = change if change is not None else self._change_report(workspace_id, outputs)
         record["error"] = None
         record["pending"] = None
         record["finished_at"] = _now()
@@ -585,6 +644,7 @@ class OperationService:
             "cards": [],
             "charts": [],
             "evaluation": None,
+            "change": None,
             "plan": plan,
             "llm_status": llm_status(self.settings),
             "pending": None,

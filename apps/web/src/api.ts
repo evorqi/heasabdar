@@ -216,6 +216,12 @@ export function applyCleaning(
   });
 }
 
+export function listVersions(workspaceId: string, fileId: string): Promise<FileVersion[]> {
+  return request<{ versions: FileVersion[] }>(`/api/workspaces/${workspaceId}/files/${fileId}/versions`).then(
+    (body) => body.versions,
+  );
+}
+
 export function restoreVersion(
   workspaceId: string,
   fileId: string,
@@ -297,6 +303,30 @@ export type ChartSpec = {
   source: string;
 };
 
+export type FileVersion = {
+  id: string;
+  parent_version_id: string | null;
+  kind: string;
+  sha256: string;
+  byte_size: number;
+  row_count: number | null;
+  sheet_count: number | null;
+  created_at: string;
+  note: string | null;
+  current: boolean;
+};
+
+export type OperationChange = {
+  rows_before: number | null;
+  columns_before: number | null;
+  sheets_before: number | null;
+  rows_after: number | null;
+  columns_after: number | null;
+  sheets_after: number | null;
+  sha256_before: string | null;
+  sha256_after: string | null;
+};
+
 export type OperationOutput = {
   file_id: string;
   version_id: string;
@@ -316,6 +346,7 @@ export type Operation = {
   cards?: { name: string; label: string; value: string; unit: string; hypothesis: boolean }[];
   charts?: ChartSpec[];
   evaluation?: string | null;
+  change?: OperationChange | null;
   plan: {
     id: string;
     goal: string;

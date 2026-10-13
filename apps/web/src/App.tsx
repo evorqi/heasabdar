@@ -14,6 +14,7 @@ import {
 } from "./api";
 import { formatDate, formatLabel, formatSize, savedMessage, statusLabel } from "./format";
 import { Chat } from "./Chat";
+import { History } from "./History";
 import { Cleaning } from "./Cleaning";
 import { Inspection } from "./Inspection";
 import { Reconcile } from "./Reconcile";
@@ -49,11 +50,15 @@ export function App() {
     void openWorkspace(saved);
   }, []);
 
+  const selectedVersion = files.find((file) => file.id === selectedId)?.current_version_id ?? null;
+
   useEffect(() => {
-    if (!workspace || !selectedId) return;
-    if (reports[selectedId] || inspectErrors[selectedId] || inspectingId === selectedId) return;
+    if (!workspace || !selectedId || !selectedVersion) return;
+    if (inspectingId === selectedId) return;
+    if (reports[selectedId]?.version_id === selectedVersion) return;
+    if (!reports[selectedId] && inspectErrors[selectedId]) return;
     void runInspect(workspace.id, selectedId);
-  }, [workspace, selectedId, reports, inspectErrors, inspectingId]);
+  }, [workspace, selectedId, selectedVersion, reports, inspectErrors, inspectingId]);
 
   async function openWorkspace(id: string) {
     setLoading(true);
@@ -391,6 +396,27 @@ export function App() {
                 onChanged={async () => {
                   const listed = await listFiles(workspace.id);
                   setFiles(listed);
+                }}
+              />
+            ) : null}
+            {selected && workspace ? (
+              <History
+                key={`${selected.id}:${selected.current_version_id}`}
+                workspaceId={workspace.id}
+                file={selected}
+                onChanged={async () => {
+                  const listed = await listFiles(workspace.id);
+                  setFiles(listed);
+                  setReports((current) => {
+                    const next = { ...current };
+                    delete next[selected.id];
+                    return next;
+                  });
+                  setInspectErrors((current) => {
+                    const next = { ...current };
+                    delete next[selected.id];
+                    return next;
+                  });
                 }}
               />
             ) : null}

@@ -186,9 +186,20 @@ def cancel_operation(workspace_id: str, operation_id: str, request: Request) -> 
     return JSONResponse(status_code=_operation_status(report), content=report)
 
 
+@router.get("/workspaces/{workspace_id}/files/{file_id}/versions")
+def list_versions(workspace_id: str, file_id: str, request: Request) -> dict:
+    return {"versions": request.app.state.ctx.service.list_versions(workspace_id, file_id)}
+
+
 @router.post("/workspaces/{workspace_id}/files/{file_id}/restore")
 def restore_version(workspace_id: str, file_id: str, body: RestoreIn, request: Request) -> dict:
     return request.app.state.ctx.cleaning.restore(workspace_id, file_id, body.version_id)
+
+
+@router.post("/workspaces/{workspace_id}/versions/{version_id}/restore")
+def restore_version_by_id(workspace_id: str, version_id: str, request: Request) -> dict:
+    version = request.app.state.ctx.service.get_version(workspace_id, version_id)
+    return request.app.state.ctx.cleaning.restore(workspace_id, version["file_id"], version_id)
 
 
 @router.get("/workspaces/{workspace_id}/versions/{version_id}/download")

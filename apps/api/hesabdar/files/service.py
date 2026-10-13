@@ -296,6 +296,38 @@ class FileService:
             raise
         return version_id
 
+    def list_versions(self, workspace_id: str, file_id: str) -> list[dict]:
+        meta = self.get_file(workspace_id, file_id)
+        with self.db.transaction() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, parent_version_id, kind, sha256, byte_size, row_count, sheet_count, created_at, note
+                FROM versions
+                WHERE file_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (file_id,),
+            ).fetchall()
+        return [{**dict(row), "current": row["id"] == meta["current_version_id"]} for row in rows]
+
+    def get_version(self, workspace_id: str, version_id: str) -> dict:
+        self.get_workspace(workspace_id)
+        _parse_uuid(version_id, VERSION_NOT_FOUND)
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT v.id, v.file_id, v.parent_version_id, v.kind, v.sha256, v.byte_size,
+                       v.row_count, v.sheet_count, v.created_at, v.note, f.format, f.original_name
+                FROM versions v
+                JOIN files f ON f.id = v.file_id
+                WHERE v.id = ? AND f.workspace_id = ?
+                """,
+                (version_id, workspace_id),
+            ).fetchone()
+        if row is None:
+            raise AppError("version.not_found", VERSION_NOT_FOUND, 404)
+        return dict(row)
+
     def point_at_version(self, workspace_id: str, file_id: str, version_id: str) -> dict:
         self.get_file(workspace_id, file_id)
         _parse_uuid(version_id, VERSION_NOT_FOUND)

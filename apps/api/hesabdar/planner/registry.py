@@ -37,5 +37,6 @@ TOOLS = frozenset(
         "freeze",
         "data_validation",
         "export",
+        "restore_version",
     }
 )

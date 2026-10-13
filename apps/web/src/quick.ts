@@ -16,6 +16,7 @@ export const DASHBOARD_TEXT = "یک داشبورد فروش بساز";
 export const FORMULA_TEXT = "فرمول درصد اختلاف را بنویس";
 export const CREATE_TEXT = "یک فایل مدیریت فروش با برگه‌های فروش، مشتریان، محصولات، گزارش و داشبورد بساز";
 export const MERGE_TEXT = "دو برگه را با هم ادغام کن";
+export const RESTORE_TEXT = "به نسخه اصلی برگرد";
 
 export type QuickAction = {
   label: string;
@@ -26,6 +27,7 @@ export type QuickAction = {
 export const QUICK_ACTIONS: QuickAction[] = [
   { label: "ساخت فایل", text: CREATE_TEXT, files: "none" },
   { label: "ادغام برگه", text: MERGE_TEXT, files: "one" },
+  { label: "بازگشت", text: RESTORE_TEXT, files: "one" },
   { label: "بررسی ساختار", text: INSPECT_TEXT, files: "one" },
   { label: "پیش‌نمایش", text: PREVIEW_TEXT, files: "one" },
   { label: "پاک‌سازی", text: CLEAN_TEXT, files: "one" },

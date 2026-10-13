@@ -243,6 +243,14 @@ function Result({
           {operation.summary}
         </p>
       ) : null}
+      {operation && ok && operation.change && operation.change.rows_after != null ? (
+        <p className="muted">
+          {operation.change.rows_before == null
+            ? "قبل، فایلی در کار نبود."
+            : `قبل، ${operation.change.rows_before} ردیف و ${operation.change.columns_before} ستون در ${operation.change.sheets_before} برگه.`}{" "}
+          {`بعد، ${operation.change.rows_after} ردیف و ${operation.change.columns_after} ستون در ${operation.change.sheets_after} برگه.`}
+        </p>
+      ) : null}
       {operation && !ok && !turn.error ? (
         <p className={operation.status === "failed" ? "alert" : "muted"} role={operation.status === "failed" ? "alert" : "status"}>
           {operation.status === "failed" ? operation.error?.message : operation.summary || operation.progress_label}

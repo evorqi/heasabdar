@@ -52,7 +52,7 @@ def test_registry_stops_before_later_tools() -> None:
         "export",
     } <= TOOLS
     assert "shell" not in TOOLS
-    assert "restore_version" not in TOOLS
+    assert "restore_version" in TOOLS
 
 
 def test_benchmark_sentences_reach_their_tools() -> None:
@@ -89,6 +89,10 @@ def test_benchmark_sentences_reach_their_tools() -> None:
     files = build_plan("دو فایل را ادغام کن", "w", ["a", "b"])
     assert files["goal"] == "file_merge"
     assert "reconcile" not in [step["tool"] for step in files["steps"]]
+    restored = build_plan("به نسخه اصلی برگرد", "w", ["f"])
+    assert restored["goal"] == "restore_version"
+    assert [step["tool"] for step in restored["steps"]] == ["restore_version"]
+    assert restored["steps"][0]["params"]["target"] == "original"
 
 
 def test_shell_plan_and_foreign_numbers_are_rejected(tmp_path) -> None:
