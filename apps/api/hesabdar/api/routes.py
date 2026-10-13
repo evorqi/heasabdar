@@ -37,6 +37,16 @@ class ReconcileIn(BaseModel):
     key_columns: list[str] = []
 
 
+class OperationIn(BaseModel):
+    text: str
+    file_ids: list[str] = []
+
+
+class ConfirmOperationIn(BaseModel):
+    key_columns: list[str] = []
+    column: str | None = None
+
+
 @router.get("/health")
 def health() -> dict:
     return {"status": "ok"}
@@ -143,6 +153,33 @@ def apply_reconciliation(workspace_id: str, body: ReconcileIn, request: Request)
     return JSONResponse(status_code=status_code, content=report)
 
 
+@router.post("/workspaces/{workspace_id}/operations")
+def create_operation(workspace_id: str, body: OperationIn, request: Request) -> JSONResponse:
+    report = request.app.state.ctx.operations.submit(workspace_id, body.text, body.file_ids)
+    return JSONResponse(status_code=_operation_status(report), content=report)
+
+
+@router.get("/workspaces/{workspace_id}/operations/{operation_id}")
+def get_operation(workspace_id: str, operation_id: str, request: Request) -> dict:
+    return request.app.state.ctx.operations.get(workspace_id, operation_id)
+
+
+@router.post("/workspaces/{workspace_id}/operations/{operation_id}/confirm")
+def confirm_operation(
+    workspace_id: str,
+    operation_id: str,
+    body: ConfirmOperationIn,
+    request: Request,
+) -> JSONResponse:
+    report = request.app.state.ctx.operations.confirm(
+        workspace_id,
+        operation_id,
+        body.key_columns,
+        body.column,
+    )
+    return JSONResponse(status_code=_operation_status(report), content=report)
+
+
 @router.post("/workspaces/{workspace_id}/files/{file_id}/restore")
 def restore_version(workspace_id: str, file_id: str, body: RestoreIn, request: Request) -> dict:
     return request.app.state.ctx.cleaning.restore(workspace_id, file_id, body.version_id)
@@ -160,6 +197,19 @@ def download_version(workspace_id: str, version_id: str, request: Request) -> Re
             "Cache-Control": "no-store",
         },
     )
+
+
+def _operation_status(report: dict) -> int:
+    if report["status"] == "succeeded":
+        return 201
+    if report["status"] != "failed":
+        return 200
+    code = (report.get("error") or {}).get("code")
+    if code == "internal":
+        return 500
+    if code == "request.invalid":
+        return 400
+    return 422
 
 
 async def _read_limited(upload: UploadFile, limit: int) -> bytes:

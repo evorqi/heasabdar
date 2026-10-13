@@ -91,9 +91,15 @@ CREATE TABLE IF NOT EXISTS reconciliations (
     report_json TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS conversation_focus (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
+    focus_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class Database:

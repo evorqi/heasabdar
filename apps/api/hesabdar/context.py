@@ -8,6 +8,7 @@ from hesabdar.files.service import FileService
 from hesabdar.files.storage import Storage
 from hesabdar.cleaning.service import CleaningService
 from hesabdar.inspection.service import InspectionService
+from hesabdar.executor.service import OperationService
 from hesabdar.reconcile.service import ReconcileService
 
 
@@ -20,3 +21,4 @@ class AppContext:
     inspection: InspectionService
     cleaning: CleaningService
     reconcile: ReconcileService
+    operations: OperationService

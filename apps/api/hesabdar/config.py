@@ -22,6 +22,9 @@ class Settings:
     max_uncompressed_bytes: int = DEFAULT_MAX_UNCOMPRESSED_BYTES
     max_files_per_upload: int = DEFAULT_MAX_FILES
     access_token: str | None = None
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
     cors_origins: tuple[str, ...] = (
         "http://127.0.0.1:5173",
         "http://localhost:5173",
@@ -54,6 +57,9 @@ class Settings:
             ),
             access_token=token,
             cors_origins=cors,
+            llm_base_url=os.environ.get("HESABDAR_LLM_BASE_URL", "").strip() or None,
+            llm_api_key=os.environ.get("HESABDAR_LLM_API_KEY", "").strip() or None,
+            llm_model=os.environ.get("HESABDAR_LLM_MODEL", "").strip() or None,
         )
 
 
