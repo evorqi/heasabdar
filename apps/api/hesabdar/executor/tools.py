@@ -27,8 +27,14 @@ from hesabdar.messages import (
     PLAN_NO_CATEGORY,
     PLAN_NO_CITY,
     PLAN_NO_DATE,
+    PLAN_MACRO,
+    PLAN_PIVOT,
+    CONFIRM_REWRITE,
+    MACRO_DROPPED,
+    PIVOT_DROPPED,
     RECONCILE_QUESTION,
 )
+from hesabdar.structure.engine import apply, block_reason, build_management, merge_tables
 from hesabdar.planner.explain import render
 from hesabdar.reconcile.service import ReconcileService
 from hesabdar.executor.sheets import amount_columns, assert_output, compare, grid, load_sheet, money
@@ -104,6 +110,29 @@ class ToolRunner:
             return self._dashboard(workspace_id, params, operation_id)
         if tool == "apply_formula":
             return self._formula(workspace_id, params, operation_id)
+        if tool == "create_workbook":
+            return self._create_workbook(workspace_id, params, operation_id)
+        if tool == "file_merge":
+            return self._file_merge(workspace_id, params, operation_id)
+        if tool in {
+            "sheet_add",
+            "sheet_delete",
+            "sheet_rename",
+            "sheet_move",
+            "sheet_merge",
+            "sheet_split",
+            "file_split",
+            "column_add",
+            "column_delete",
+            "column_move",
+            "row_add",
+            "row_delete",
+            "format_cells",
+            "freeze",
+            "data_validation",
+            "export",
+        }:
+            return self._structure(workspace_id, params, operation_id, tool)
         raise AppError("plan.unknown_tool", "این برنامه پذیرفته نشد.", 422)
 
     def _inspect(self, workspace_id: str, file_id: str) -> StepResult:
@@ -514,6 +543,142 @@ class ToolRunner:
             sheet_name=table["sheet"],
         )
 
+    def _create_workbook(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        built = build_management(params.get("text") or "")
+        return self._finish_structure(workspace_id, params, operation_id, "create_workbook", built, None, [], "مدیریت فروش.xlsx")
+
+    def _file_merge(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        left_meta, _left_data, left = self._load_book(workspace_id, params["left_file_id"])
+        right_meta, _right_data, right = self._load_book(workspace_id, params["right_file_id"])
+        flags = list(dict.fromkeys([*left.workbook_flags, *right.workbook_flags]))
+        tables = [sheet for sheet in (_primary(left), _primary(right)) if sheet is not None]
+        built = merge_tables(tables, "فایل")
+        return self._finish_structure(
+            workspace_id,
+            params,
+            operation_id,
+            "file_merge",
+            built,
+            left_meta,
+            flags,
+            "ادغام فایل.xlsx",
+        )
+
+    def _structure(self, workspace_id: str, params: dict, operation_id: str, tool: str) -> StepResult:
+        meta, _data, read = self._load_book(workspace_id, params["file_id"])
+        built = apply(tool, _views(read), params.get("text") or "")
+        return self._finish_structure(
+            workspace_id,
+            params,
+            operation_id,
+            tool,
+            built,
+            meta,
+            read.workbook_flags,
+            _OUTPUT_NAMES.get(tool, "ساختار.xlsx"),
+        )
+
+    def _finish_structure(
+        self,
+        workspace_id: str,
+        params: dict,
+        operation_id: str,
+        tool: str,
+        built: dict,
+        meta: dict | None,
+        flags: list[str],
+        filename: str,
+    ) -> StepResult:
+        if built.get("question"):
+            return StepResult(waiting={"question": built["question"], "choices": [], "pending": None})
+        reason = block_reason(flags, bool(params.get("confirm")))
+        if reason:
+            step = {"tool": tool, "params": dict(params), "reads": _structure_reads(params), "writes": ["result"]}
+            return StepResult(
+                waiting={
+                    "question": PLAN_MACRO if reason == "macro" else PLAN_PIVOT,
+                    "choices": [CONFIRM_REWRITE],
+                    "pending": {"type": "column", "field": "confirm", "step": step, "choices": [CONFIRM_REWRITE]},
+                }
+            )
+        warnings = list(built.get("warnings") or [])
+        if params.get("confirm"):
+            if "macro" in flags:
+                warnings.append(MACRO_DROPPED)
+            if "pivot_table" in flags:
+                warnings.append(PIVOT_DROPPED)
+        parent = meta["current_version_id"] if meta else None
+        file_format = built.get("file_format") or "xlsx"
+        outputs = []
+        bundles = built.get("files")
+        if bundles:
+            for bundle in bundles:
+                outputs.append(
+                    self._store_new(
+                        workspace_id,
+                        bundle["name"],
+                        bundle["sheets"],
+                        operation_id,
+                        tool,
+                        parent,
+                        file_format,
+                    )
+                )
+        else:
+            outputs.append(
+                self._store_new(
+                    workspace_id,
+                    built.get("filename") or filename,
+                    built["sheets"],
+                    operation_id,
+                    tool,
+                    parent,
+                    file_format,
+                )
+            )
+        return StepResult(summary=built.get("summary"), warnings=warnings, outputs=outputs, metrics=built.get("metrics") or {})
+
+    def _load_book(self, workspace_id: str, file_id: str):
+        meta = self.files.get_file(workspace_id, file_id)
+        _record, data = self.files.read_version(workspace_id, meta["current_version_id"])
+        return meta, data, read_workbook(data, meta["format"], meta["original_name"])
+
+    def _store_new(
+        self,
+        workspace_id: str,
+        name: str,
+        sheets: list[dict],
+        operation_id: str,
+        kind: str,
+        parent: str | None,
+        file_format: str,
+    ) -> dict:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        data = write_workbook(sheets, file_format)
+        if file_format == "xlsx":
+            try:
+                read = read_workbook(data, "xlsx", name)
+            except AppError:
+                raise AppError("output.invalid", OPERATION_INVALID, 422) from None
+            if [sheet.name for sheet in read.sheets] != [sheet["name"][:31] for sheet in sheets]:
+                raise AppError("output.invalid", OPERATION_INVALID, 422)
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        stored = self.files.add_output_file(
+            workspace_id,
+            name,
+            data,
+            kind=kind,
+            note=name,
+            parent_version_id=parent,
+            operation_id=operation_id,
+            row_count=sum(max(len(sheet["rows"]) - 1, 0) for sheet in sheets),
+            sheet_count=len(sheets),
+            file_format=file_format,
+        )
+        return {"file_id": stored["id"], "version_id": stored["current_version_id"], "name": stored["original_name"]}
+
     def _save_rendered(
         self,
         workspace_id: str,
@@ -581,6 +746,60 @@ class ToolRunner:
             sheet_count=1,
         )
         return {"file_id": stored["id"], "version_id": stored["current_version_id"], "name": stored["original_name"]}
+
+
+_OUTPUT_NAMES = {
+    "sheet_merge": "ادغام.xlsx",
+    "sheet_split": "تقسیم برگه.xlsx",
+    "file_split": "تقسیم.xlsx",
+    "sheet_add": "ساختار.xlsx",
+    "sheet_delete": "ساختار.xlsx",
+    "sheet_rename": "ساختار.xlsx",
+    "sheet_move": "ساختار.xlsx",
+    "column_add": "ساختار.xlsx",
+    "column_delete": "ساختار.xlsx",
+    "column_move": "ساختار.xlsx",
+    "row_add": "ساختار.xlsx",
+    "row_delete": "ساختار.xlsx",
+    "format_cells": "ساختار.xlsx",
+    "freeze": "ساختار.xlsx",
+    "data_validation": "ساختار.xlsx",
+    "export": "خروجی.csv",
+}
+
+
+def _views(read) -> list[dict]:
+    sheets = []
+    for sheet in read.sheets:
+        if not sheet.rows:
+            continue
+        rows = []
+        formulas = set()
+        for row_index, row in enumerate(sheet.rows):
+            values = []
+            for column_index, cell in enumerate(row):
+                values.append(cell.raw)
+                if cell.formula:
+                    formulas.add((row_index, column_index))
+            rows.append(values)
+        sheets.append({"name": sheet.name, "rows": rows, "formulas": formulas})
+    return sheets
+
+
+def _primary(read) -> dict | None:
+    sheets = _views(read)
+    if not sheets:
+        return None
+    return max(sheets, key=lambda sheet: max(len(sheet["rows"]) - 1, 0))
+
+
+def _structure_reads(params: dict) -> list[str]:
+    found = []
+    for key in ("file_id", "left_file_id", "right_file_id"):
+        value = params.get(key)
+        if value and value not in found:
+            found.append(value)
+    return found
 
 
 def _choose_amount(table: dict, params: dict) -> tuple[str | None, dict | None]:

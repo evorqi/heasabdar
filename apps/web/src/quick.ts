@@ -14,14 +14,18 @@ export const AGGREGATE_TEXT = "مجموع و میانگین مبلغ را حسا
 export const CHART_TEXT = "یک نمودار ستونی از فروش بساز";
 export const DASHBOARD_TEXT = "یک داشبورد فروش بساز";
 export const FORMULA_TEXT = "فرمول درصد اختلاف را بنویس";
+export const CREATE_TEXT = "یک فایل مدیریت فروش با برگه‌های فروش، مشتریان، محصولات، گزارش و داشبورد بساز";
+export const MERGE_TEXT = "دو برگه را با هم ادغام کن";
 
 export type QuickAction = {
   label: string;
   text: string;
-  files: "one" | "pair";
+  files: "one" | "pair" | "none";
 };
 
 export const QUICK_ACTIONS: QuickAction[] = [
+  { label: "ساخت فایل", text: CREATE_TEXT, files: "none" },
+  { label: "ادغام برگه", text: MERGE_TEXT, files: "one" },
   { label: "بررسی ساختار", text: INSPECT_TEXT, files: "one" },
   { label: "پیش‌نمایش", text: PREVIEW_TEXT, files: "one" },
   { label: "پاک‌سازی", text: CLEAN_TEXT, files: "one" },

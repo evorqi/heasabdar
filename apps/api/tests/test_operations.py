@@ -31,8 +31,28 @@ def test_registry_stops_before_later_tools() -> None:
     assert {"filter", "sort", "add_column", "compute_column", "reconcile", "inspect", "clean"} <= TOOLS
     assert {"aggregate", "rank", "trend", "outliers", "kpi", "report"} <= TOOLS
     assert {"chart", "dashboard", "apply_formula"} <= TOOLS
+    assert {
+        "create_workbook",
+        "sheet_add",
+        "sheet_delete",
+        "sheet_rename",
+        "sheet_move",
+        "sheet_merge",
+        "sheet_split",
+        "file_merge",
+        "file_split",
+        "column_add",
+        "column_delete",
+        "column_move",
+        "row_add",
+        "row_delete",
+        "format_cells",
+        "freeze",
+        "data_validation",
+        "export",
+    } <= TOOLS
     assert "shell" not in TOOLS
-    assert "create_workbook" not in TOOLS
+    assert "restore_version" not in TOOLS
 
 
 def test_benchmark_sentences_reach_their_tools() -> None:
@@ -56,6 +76,19 @@ def test_benchmark_sentences_reach_their_tools() -> None:
     dashboard = build_plan("یک داشبورد فروش بساز", "w", ["f"])
     assert dashboard["goal"] == "dashboard"
     assert [step["tool"] for step in dashboard["steps"]] == ["inspect", "dashboard"]
+    created = build_plan(
+        "یک فایل مدیریت فروش با برگه‌های فروش، مشتریان، محصولات، گزارش و داشبورد بساز",
+        "w",
+        [],
+    )
+    assert created["goal"] == "create_workbook"
+    assert [step["tool"] for step in created["steps"]] == ["create_workbook"]
+    merged = build_plan("دو برگه را با هم ادغام کن", "w", ["f"])
+    assert merged["goal"] == "sheet_merge"
+    assert [step["tool"] for step in merged["steps"]] == ["inspect", "sheet_merge"]
+    files = build_plan("دو فایل را ادغام کن", "w", ["a", "b"])
+    assert files["goal"] == "file_merge"
+    assert "reconcile" not in [step["tool"] for step in files["steps"]]
 
 
 def test_shell_plan_and_foreign_numbers_are_rejected(tmp_path) -> None:

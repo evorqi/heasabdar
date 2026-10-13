@@ -9,6 +9,9 @@ import xlwt
 from openpyxl import Workbook
 from openpyxl.cell.cell import Cell
 from openpyxl.chart import AreaChart, BarChart, LineChart, PieChart, Reference, ScatterChart, Series
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from hesabdar.errors import AppError
 from hesabdar.messages import FILE_UNSUPPORTED
@@ -44,6 +47,7 @@ def _write_xlsx(sheets: list[dict]) -> bytes:
                     _write_xlsx_cell(cell, value, (row_index, column_index) in formulas)
         if sheet.get("chart"):
             _add_chart(worksheet, sheet["chart"])
+        _finish_sheet(worksheet, sheet)
     if not sheets:
         first.title = "خالی"
         first.sheet_view.rightToLeft = True
@@ -57,6 +61,7 @@ def _write_number(cell: Cell, value: str) -> None:
     number = Decimal(str(value))
     cell.value = int(number) if number == number.to_integral_value() else float(number)
     cell.number_format = "0.####"
+    cell.font = Font(name="Tahoma")
 
 
 def _add_chart(worksheet, spec: dict) -> None:
@@ -111,11 +116,37 @@ def _chart_object(chart_type: str):
 
 def _write_xlsx_cell(cell: Cell, value: str, formula: bool) -> None:
     cell.value = value
+    cell.font = Font(name="Tahoma")
     if formula:
         return
     cell.number_format = "@"
     if isinstance(value, str) and value.startswith("="):
         cell.data_type = "s"
+
+
+def _finish_sheet(worksheet, sheet: dict) -> None:
+    if sheet.get("bold_header"):
+        for cell in worksheet[1]:
+            if cell.value is not None:
+                cell.font = Font(name="Tahoma", bold=True)
+    if sheet.get("freeze"):
+        worksheet.freeze_panes = sheet["freeze"]
+    outline = sheet.get("outline")
+    if outline and int(outline["end"]) >= int(outline["start"]):
+        worksheet.row_dimensions.group(int(outline["start"]), int(outline["end"]), hidden=False)
+    for column in sheet.get("text_columns") or []:
+        worksheet.column_dimensions[get_column_letter(int(column))].number_format = "@"
+    headers = sheet["rows"][0] if sheet.get("rows") else []
+    for index, header in enumerate(headers, start=1):
+        letter = get_column_letter(index)
+        worksheet.column_dimensions[letter].width = max(14, min(36, len(str(header)) + 6))
+    validation = sheet.get("validation")
+    if not validation:
+        return
+    formula = '"' + ",".join(str(value) for value in validation["values"]) + '"'
+    rule = DataValidation(type="list", formula1=formula, allow_blank=True)
+    rule.add(validation["sqref"])
+    worksheet.add_data_validation(rule)
 
 
 def _write_xls(sheets: list[dict]) -> bytes:

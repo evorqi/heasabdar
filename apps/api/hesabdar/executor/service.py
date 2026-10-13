@@ -58,6 +58,10 @@ _DONE = {
     "chart": "نمودار آماده است",
     "dashboard": "داشبورد آماده است",
     "apply_formula": "فرمول نوشته شد",
+    "create_workbook": "فایل ساخته شد",
+    "sheet_merge": "برگه‌ها ادغام شد",
+    "file_merge": "فایل‌ها ادغام شد",
+    "export": "خروجی csv آماده است",
 }
 _BUSY = {
     "filter": "در حال فیلتر",
@@ -77,6 +81,10 @@ _BUSY = {
     "chart": "در حال نمودار",
     "dashboard": "در حال داشبورد",
     "apply_formula": "در حال نوشتن فرمول",
+    "create_workbook": "در حال ساخت فایل",
+    "sheet_merge": "در حال ادغام",
+    "file_merge": "در حال ادغام فایل",
+    "export": "در حال خروجی csv",
 }
 _PERIOD_NOTE = " این نتیجه برای مهر است."
 

@@ -19,7 +19,7 @@ import {
   statusLabel,
   unsupportedLabel,
 } from "./format";
-import { QUICK_ACTIONS, RECONCILE_TEXT } from "./quick";
+import { CREATE_TEXT, MERGE_TEXT, QUICK_ACTIONS, RECONCILE_TEXT } from "./quick";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -51,7 +51,9 @@ describe("format", () => {
     expect(QUICK_ACTIONS.map((action) => action.label)).toContain("گزارش مدیریتی");
     expect(QUICK_ACTIONS.map((action) => action.label)).toContain("نمودار");
     expect(QUICK_ACTIONS.map((action) => action.label)).toContain("داشبورد");
-    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("ساخت فایل");
+    expect(QUICK_ACTIONS.find((action) => action.label === "ساخت فایل")?.text).toBe(CREATE_TEXT);
+    expect(QUICK_ACTIONS.find((action) => action.label === "ساخت فایل")?.files).toBe("none");
+    expect(QUICK_ACTIONS.find((action) => action.label === "ادغام برگه")?.text).toBe(MERGE_TEXT);
     expect(QUICK_ACTIONS.find((action) => action.label === "مغایرت")?.text).toBe(RECONCILE_TEXT);
     expect(QUICK_ACTIONS.find((action) => action.label === "پیش‌نمایش")?.text.includes("\u200c")).toBe(true);
   });

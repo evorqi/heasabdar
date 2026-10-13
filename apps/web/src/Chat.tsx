@@ -41,6 +41,7 @@ export function Chat({ workspaceId, files, selectedId, onChanged }: Props) {
   }, [turns]);
 
   function idsFor(action: QuickAction): string[] {
+    if (action.files === "none") return [];
     if (action.files === "pair") {
       return files.length === 2 ? files.map((file) => file.id) : [];
     }
@@ -49,7 +50,11 @@ export function Chat({ workspaceId, files, selectedId, onChanged }: Props) {
 
   function idsForText(text: string): string[] {
     const normal = text.replace(/\u200c/g, "");
+    if (normal.includes("فایل مدیریت")) return [];
     if (normal.includes("تطبیق") || normal.includes("مغایرت")) {
+      return files.length === 2 ? files.map((file) => file.id) : [];
+    }
+    if (normal.includes("ادغام") && normal.includes("فایل") && !normal.includes("برگه")) {
       return files.length === 2 ? files.map((file) => file.id) : [];
     }
     return selectedId ? [selectedId] : [];

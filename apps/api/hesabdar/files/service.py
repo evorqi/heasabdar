@@ -332,6 +332,7 @@ class FileService:
         operation_id: str,
         row_count: int,
         sheet_count: int,
+        file_format: str = "xlsx",
     ) -> StoredFile:
         self.get_workspace(workspace_id)
         file_id = str(uuid.uuid4())
@@ -346,13 +347,14 @@ class FileService:
                     INSERT INTO files (
                         id, workspace_id, original_name, format, media_type,
                         byte_size, sha256, current_version_id, created_at
-                    ) VALUES (?, ?, ?, 'xlsx', ?, ?, ?, NULL, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)
                     """,
                     (
                         file_id,
                         workspace_id,
                         name,
-                        MEDIA_TYPES["xlsx"],
+                        file_format,
+                        MEDIA_TYPES[file_format],
                         len(data),
                         digest,
                         created_at,

@@ -30,6 +30,15 @@ const DERIVED_NAMES = new Set([
   "نمودار.xlsx",
   "داشبورد.xlsx",
   "فرمول.xlsx",
+  "مدیریت فروش.xlsx",
+  "ادغام.xlsx",
+  "ادغام فایل.xlsx",
+  "تقسیم برگه.xlsx",
+  "تقسیم.xlsx",
+  "بخش ۱.xlsx",
+  "بخش ۲.xlsx",
+  "خروجی.csv",
+  "ساختار.xlsx",
 ]);
 
 function sourcePair(files: StoredFile[]): [string, string] {

@@ -11,6 +11,7 @@ from hesabdar.messages import (
     PLAN_NEED_AMOUNT,
     PLAN_NEED_FILE,
     PLAN_NEED_FILES,
+    PLAN_NEED_TWO_FILES,
     PLAN_QUESTION,
     PLAN_REJECTED,
     REQUEST_EMPTY,
@@ -62,11 +63,12 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
     tool, params = _params(signal, normal, file_ids)
     if tool is None:
         return _ask(plan, params["question"])
-    if tool not in {"inspect", "preview"}:
-        targets = file_ids if tool == "reconcile" else file_ids[:1]
+    reads = [] if tool == "create_workbook" else list(file_ids)
+    if tool not in {"inspect", "preview", "create_workbook"}:
+        targets = file_ids if tool in {"reconcile", "file_merge"} else file_ids[:1]
         for file_id in targets:
             plan["steps"].append(_step("inspect", {"file_id": file_id}, [file_id], []))
-    plan["steps"].append(_step(tool, params, list(file_ids), ["result"]))
+    plan["steps"].append(_step(tool, params, reads, ["result"]))
     if tool == "trend":
         plan["steps"].append(
             _step(
@@ -87,7 +89,9 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
 
 def _signal(normal: str) -> str | None:
     found = []
-    if "داشبورد" in normal:
+    if "فایل مدیریت" in normal:
+        found.append("create_workbook")
+    elif "داشبورد" in normal:
         found.append("dashboard")
     if "نمودار" in normal and "داشبورد" not in normal:
         found.append("chart")
@@ -109,6 +113,40 @@ def _signal(normal: str) -> str | None:
         found.append("aggregate")
     if "تطبیق" in normal or "مغایرت" in normal:
         found.append("reconcile")
+    if "ادغام" in normal and "برگه" in normal:
+        found.append("sheet_merge")
+    elif "ادغام" in normal and "فایل" in normal:
+        found.append("file_merge")
+    if "تقسیم" in normal and "برگه" in normal:
+        found.append("sheet_split")
+    elif "تقسیم" in normal and "فایل" in normal:
+        found.append("file_split")
+    if "csv" in normal:
+        found.append("export")
+    if "تثبیت" in normal or "فریز" in normal:
+        found.append("freeze")
+    if "فهرست" in normal and "ستون" in normal:
+        found.append("data_validation")
+    if "گروهبندی" in normal or "قالب" in normal:
+        found.append("format_cells")
+    if "حذف" in normal and "برگه" in normal:
+        found.append("sheet_delete")
+    elif "نام" in normal and "برگه" in normal:
+        found.append("sheet_rename")
+    elif "برگه" in normal and "اضافه" in normal:
+        found.append("sheet_add")
+    elif "برگه" in normal and ("جابجا" in normal or "اول" in normal):
+        found.append("sheet_move")
+    if "حذف" in normal and "ستون" in normal:
+        found.append("column_delete")
+    elif "حذف" in normal and "ردیف" in normal:
+        found.append("row_delete")
+    elif "ستون" in normal and ("جابجا" in normal or "اول" in normal) and "برگه" not in normal:
+        found.append("column_move")
+    elif "ردیف" in normal and "اضافه" in normal:
+        found.append("row_add")
+    elif "ستون تازه" in normal:
+        found.append("column_add")
     if "پاکسازی" in normal:
         found.append("clean")
     if "مرتب" in normal and "مبلغ" in normal:
@@ -118,7 +156,13 @@ def _signal(normal: str) -> str | None:
         found.append("amount")
     elif isinstance(amount, dict) and ("فروش" in normal or "مبلغ" in normal):
         found.append("filter")
-    if "ستون" in normal and "اضافه" in normal and "درصد اختلاف" not in normal:
+    if (
+        "ستون" in normal
+        and "اضافه" in normal
+        and "درصد اختلاف" not in normal
+        and "فهرست" not in normal
+        and "برگه" not in normal
+    ):
         found.append("add_column")
     if "پیشنمایش" in normal:
         found.append("preview")
@@ -132,10 +176,16 @@ def _signal(normal: str) -> str | None:
 
 
 def _params(tool: str, normal: str, file_ids: list[str]) -> tuple[str | None, dict]:
+    if tool == "create_workbook":
+        return tool, {"text": normal}
     if tool == "reconcile":
         if len(file_ids) != 2:
             return None, {"question": PLAN_NEED_FILES}
         return tool, {"left_file_id": file_ids[0], "right_file_id": file_ids[1], "key_columns": []}
+    if tool == "file_merge":
+        if len(file_ids) != 2:
+            return None, {"question": PLAN_NEED_TWO_FILES}
+        return tool, {"left_file_id": file_ids[0], "right_file_id": file_ids[1], "text": normal}
     if len(file_ids) != 1:
         return None, {"question": PLAN_NEED_FILE}
     file_id = file_ids[0]
@@ -152,6 +202,25 @@ def _params(tool: str, normal: str, file_ids: list[str]) -> tuple[str | None, di
         if not name or len(name) > 40 or looks_like_code(name):
             return None, {"question": PLAN_QUESTION}
         return tool, {"file_id": file_id, "name": name}
+    if tool in {
+        "sheet_add",
+        "sheet_delete",
+        "sheet_rename",
+        "sheet_move",
+        "sheet_merge",
+        "sheet_split",
+        "file_split",
+        "column_add",
+        "column_delete",
+        "column_move",
+        "row_add",
+        "row_delete",
+        "format_cells",
+        "freeze",
+        "data_validation",
+        "export",
+    }:
+        return tool, {"file_id": file_id, "text": normal}
     if tool == "chart":
         chart_type, title = _chart_choice(normal)
         chart_params = {"file_id": file_id, "chart_type": chart_type, "title": title}
