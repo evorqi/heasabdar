@@ -5,19 +5,28 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from hesabdar.analysis.engine import analyze, present, role_columns
+from hesabdar.charts.spec import assert_charts, build_chart, grouping_columns
 from hesabdar.cleaning.service import CleaningService
+from hesabdar.dashboard.layout import category_columns, compose, customer_columns, product_columns
 from hesabdar.errors import AppError
 from hesabdar.files.service import FileService
 from hesabdar.files.workbook import write_workbook
+from hesabdar.formulas.live import assert_live_formulas, percent_formula
 from hesabdar.inspection.service import InspectionService
 from hesabdar.inspection.readers import read_workbook
 from hesabdar.messages import (
     CLEAN_SUCCEEDED,
     OPERATION_INVALID,
+    PLAN_NEED_CATEGORY,
     PLAN_NEED_CITY,
     PLAN_NEED_COLUMN,
+    PLAN_NEED_CUSTOMER,
     PLAN_NEED_DATE,
+    PLAN_NEED_PRODUCT,
     PLAN_NO_AMOUNT,
+    PLAN_NO_CATEGORY,
+    PLAN_NO_CITY,
+    PLAN_NO_DATE,
     RECONCILE_QUESTION,
 )
 from hesabdar.planner.explain import render
@@ -37,6 +46,8 @@ class StepResult:
     sheet_name: str | None = None
     cancelled: bool = False
     cards: list[dict] = field(default_factory=list)
+    charts: list[dict] = field(default_factory=list)
+    evaluation: str | None = None
 
 
 class _Stopped(Exception):
@@ -87,6 +98,12 @@ class ToolRunner:
             return self._reconcile(workspace_id, params, operation_id)
         if tool in {"aggregate", "rank", "trend", "outliers", "kpi", "report"}:
             return self._analysis(workspace_id, params, operation_id, tool)
+        if tool == "chart":
+            return self._chart(workspace_id, params, operation_id)
+        if tool == "dashboard":
+            return self._dashboard(workspace_id, params, operation_id)
+        if tool == "apply_formula":
+            return self._formula(workspace_id, params, operation_id)
         raise AppError("plan.unknown_tool", "این برنامه پذیرفته نشد.", 422)
 
     def _inspect(self, workspace_id: str, file_id: str) -> StepResult:
@@ -343,6 +360,197 @@ class ToolRunner:
         )
         return {"file_id": stored["id"], "version_id": stored["current_version_id"], "name": stored["original_name"]}
 
+    def _chart(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        meta, table = load_sheet(self.files, workspace_id, params["file_id"])
+        column, waiting = _choose_amount(table, params)
+        if waiting:
+            waiting["pending"] = {"type": "column", "field": "column", "step": _step("chart", params), "choices": waiting["choices"]}
+            return StepResult(waiting=waiting, sheet_name=table["sheet"])
+        chart_type = params.get("chart_type") or "column"
+        title = params.get("title") or "فروش"
+        category = None
+        if chart_type != "scatter":
+            category, waiting = _choose_named(
+                table,
+                params,
+                "chart",
+                "category",
+                grouping_columns(table, params.get("category_role")),
+                PLAN_NEED_CATEGORY,
+                _missing_category(params.get("category_role")),
+            )
+            if waiting:
+                return StepResult(waiting=waiting, sheet_name=table["sheet"])
+        built = build_chart(table, column, chart_type, title, category, table["sheet"] or "برگه")
+        if built["blocked"]:
+            return StepResult(waiting={"question": built["blocked"], "choices": [], "pending": None}, sheet_name=table["sheet"])
+        spec = built["spec"]
+        metrics = {"point_count": str(len(spec["series"][0]["points"])), "title": spec["title"]}
+        summary = render("نمودار {title} با {point_count} نقطه ساخته شد.", metrics)
+        cards = [_metric("point_count", "تعداد نقطه", metrics["point_count"], "تعداد")]
+        stored = self._save_rendered(
+            workspace_id,
+            meta,
+            "نمودار.xlsx",
+            [built["sheet"]],
+            operation_id,
+            "chart",
+            "نمودار",
+            None,
+            [(built["sheet"]["name"], spec)],
+        )
+        return StepResult(
+            summary=summary,
+            outputs=[stored],
+            metrics=metrics,
+            cards=cards,
+            charts=[spec],
+            sheet_name=table["sheet"],
+        )
+
+    def _dashboard(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        meta, table = load_sheet(self.files, workspace_id, params["file_id"])
+        column, waiting = _choose_amount(table, params)
+        if waiting:
+            waiting["pending"] = {"type": "column", "field": "column", "step": _step("dashboard", params), "choices": waiting["choices"]}
+            return StepResult(waiting=waiting, sheet_name=table["sheet"])
+        for role, field_name, question in (("city", "city", PLAN_NEED_CITY), ("date", "date", PLAN_NEED_DATE)):
+            chosen, waiting = _choose_role(table, params, "dashboard", role, field_name, question)
+            if waiting:
+                return StepResult(waiting=waiting, sheet_name=table["sheet"])
+            if chosen:
+                table = _pin_role(table, role, chosen)
+        picked = {}
+        for field_name, columns, question in (
+            ("customer", customer_columns(table), PLAN_NEED_CUSTOMER),
+            ("product", product_columns(table), PLAN_NEED_PRODUCT),
+            ("category", category_columns(table), PLAN_NEED_CATEGORY),
+        ):
+            chosen, waiting = _choose_named(table, params, "dashboard", field_name, columns, question, "")
+            if waiting:
+                return StepResult(waiting=waiting, sheet_name=table["sheet"])
+            picked[field_name] = chosen or ""
+        view = compose(table, analyze(table, column), picked, column)
+        if view["blocked"]:
+            return StepResult(waiting={"question": view["blocked"], "choices": [], "pending": None}, sheet_name=table["sheet"])
+        pairs = [(sheet["name"], spec) for sheet, spec in zip(_chart_sheets(view["sheets"]), view["charts"], strict=True)]
+        stored = self._save_rendered(
+            workspace_id,
+            meta,
+            view["filename"],
+            view["sheets"],
+            operation_id,
+            "dashboard",
+            "داشبورد",
+            view["cards"],
+            pairs,
+        )
+        return StepResult(
+            summary=view["summary"],
+            warnings=view["warnings"],
+            outputs=[stored],
+            metrics=view["metrics"],
+            cards=view["cards"],
+            charts=view["charts"],
+            sheet_name=table["sheet"],
+        )
+
+    def _formula(self, workspace_id: str, params: dict, operation_id: str) -> StepResult:
+        meta, table = load_sheet(self.files, workspace_id, params["file_id"])
+        columns = amount_columns(table)
+        if len(columns) != 2:
+            return StepResult(
+                waiting={
+                    "question": PLAN_NEED_COLUMN if columns else PLAN_NO_AMOUNT,
+                    "choices": columns[:20],
+                    "pending": None,
+                },
+                sheet_name=table["sheet"],
+            )
+        base_name, other_name = columns
+        base_index = table["headers"].index(base_name)
+        other_index = table["headers"].index(other_name)
+        new_index = len(table["headers"])
+        body = [list(table["headers"]) + [params["name"]]]
+        formulas: set[tuple[int, int]] = set()
+        expected = []
+        for offset, row in enumerate(table["rows"]):
+            excel_row = offset + 2
+            text = percent_formula(base_index, other_index, excel_row)
+            body.append([row.get(name) for name in table["headers"]] + [text])
+            formulas.add((offset + 1, new_index))
+            expected.append((excel_row, new_index + 1, text))
+        sheets = [
+            {"name": table["sheet"] or "برگه", "rows": body, "formulas": formulas},
+            {
+                "name": "درباره این خروجی",
+                "rows": [
+                    ["موضوع", "وضعیت"],
+                    ["فرمول زنده", "ارزیابی نشده"],
+                    ["فایل اصلی", "دست نخورده است"],
+                ],
+            },
+        ]
+        metrics = {"formula_rows": str(len(table["rows"]))}
+        summary = render("فرمول درصد اختلاف برای {formula_rows} ردیف نوشته شد. ارزیابی نشده.", metrics)
+        stored = self._save_rendered(
+            workspace_id,
+            meta,
+            "فرمول.xlsx",
+            sheets,
+            operation_id,
+            "formula",
+            "فرمول",
+            None,
+            [],
+            expected,
+        )
+        return StepResult(
+            summary=summary,
+            warnings=["موتور اکسل این فرمول را حساب نکرده است."],
+            outputs=[stored],
+            metrics=metrics,
+            evaluation="unchecked",
+            sheet_name=table["sheet"],
+        )
+
+    def _save_rendered(
+        self,
+        workspace_id: str,
+        meta: dict,
+        name: str,
+        sheets: list[dict],
+        operation_id: str,
+        kind: str,
+        note: str,
+        cards: list[dict] | None,
+        chart_pairs: list[tuple[str, dict]],
+        formulas: list[tuple[int, int, str]] | None = None,
+    ) -> dict:
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        data = write_workbook(sheets, "xlsx")
+        if chart_pairs:
+            assert_charts(data, chart_pairs)
+        if cards:
+            _assert_metric_sheet(data, cards)
+        if formulas:
+            assert_live_formulas(data, formulas)
+        if self._stop(workspace_id, operation_id):
+            raise _Stopped()
+        stored = self.files.add_output_file(
+            workspace_id,
+            name,
+            data,
+            kind=kind,
+            note=note,
+            parent_version_id=meta["current_version_id"],
+            operation_id=operation_id,
+            row_count=max(len(sheets[0]["rows"]) - 1, 0),
+            sheet_count=len(sheets),
+        )
+        return {"file_id": stored["id"], "version_id": stored["current_version_id"], "name": stored["original_name"]}
+
     def _save(
         self,
         workspace_id: str,
@@ -428,6 +636,57 @@ def _assert_analysis(data: bytes, cards: list[dict], names: list[str]) -> None:
     if not cards:
         return
     metric_sheet = next(sheet for sheet in read.sheets if sheet.name == "شاخص‌ها")
+    values = []
+    for row in metric_sheet.rows[1:]:
+        cell = row[1] if len(row) > 1 else None
+        values.append(None if cell is None else cell.raw)
+    if values != [card["value"] for card in cards]:
+        raise AppError("output.invalid", OPERATION_INVALID, 422)
+
+
+def _choose_named(table: dict, params: dict, tool: str, field: str, columns: list[str], question: str, missing: str):
+    chosen = params.get(field)
+    if chosen:
+        if chosen not in table["headers"]:
+            raise AppError("request.invalid", "درخواست نامعتبر است.", 400)
+        return chosen, None
+    if len(columns) == 1:
+        return columns[0], None
+    if not columns:
+        if missing:
+            return None, {"question": missing, "choices": [], "pending": None}
+        return None, None
+    return None, {
+        "question": question,
+        "choices": columns[:20],
+        "pending": {"type": "column", "field": field, "step": _step(tool, params), "choices": columns[:20]},
+    }
+
+
+def _missing_category(role: str | None) -> str:
+    if role == "date":
+        return PLAN_NO_DATE
+    if role == "city":
+        return PLAN_NO_CITY
+    return PLAN_NO_CATEGORY
+
+
+def _metric(name: str, label: str, value: str, unit: str) -> dict:
+    return {"name": name, "label": label, "value": value, "unit": unit, "hypothesis": False}
+
+
+def _chart_sheets(sheets: list[dict]) -> list[dict]:
+    return [sheet for sheet in sheets if sheet.get("chart")]
+
+
+def _assert_metric_sheet(data: bytes, cards: list[dict]) -> None:
+    try:
+        read = read_workbook(data, "xlsx", "گزارش.xlsx")
+    except AppError:
+        raise AppError("output.invalid", OPERATION_INVALID, 422) from None
+    metric_sheet = next((sheet for sheet in read.sheets if sheet.name == "شاخص‌ها"), None)
+    if metric_sheet is None:
+        raise AppError("output.invalid", OPERATION_INVALID, 422)
     values = []
     for row in metric_sheet.rows[1:]:
         cell = row[1] if len(row) > 1 else None

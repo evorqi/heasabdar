@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { operationLooksSuccessful } from "./format";
 import { QUICK_ACTIONS, type QuickAction } from "./quick";
+import { ChartView } from "./Chart";
 
 type Turn = {
   key: string;
@@ -247,6 +248,10 @@ function Result({
           ))}
         </ul>
       ) : null}
+      {ok && operation?.evaluation === "unchecked" ? <span className="pill pill-unchecked">ارزیابی نشده</span> : null}
+      {ok
+        ? operation?.charts?.map((chart) => <ChartView key={chart.title + chart.chart_type} chart={chart} />)
+        : null}
       {operation?.warnings?.map((warning) => (
         <p key={warning} className="muted">
           {warning}

@@ -30,9 +30,9 @@ REPEAT_TEXT = "همین گزارش را برای مهر هم بساز"
 def test_registry_stops_before_later_tools() -> None:
     assert {"filter", "sort", "add_column", "compute_column", "reconcile", "inspect", "clean"} <= TOOLS
     assert {"aggregate", "rank", "trend", "outliers", "kpi", "report"} <= TOOLS
+    assert {"chart", "dashboard", "apply_formula"} <= TOOLS
     assert "shell" not in TOOLS
-    assert "chart" not in TOOLS
-    assert "dashboard" not in TOOLS
+    assert "create_workbook" not in TOOLS
 
 
 def test_benchmark_sentences_reach_their_tools() -> None:
@@ -51,7 +51,11 @@ def test_benchmark_sentences_reach_their_tools() -> None:
     assert report["goal"] == "report"
     trend = build_plan("روند فروش ماهانه را نشان بده", "w", ["f"])
     assert trend["goal"] == "trend"
-    assert all(step["tool"] != "chart" for step in trend["steps"])
+    assert [step["tool"] for step in trend["steps"]] == ["inspect", "trend", "chart"]
+    assert trend["steps"][-1]["params"]["chart_type"] == "line"
+    dashboard = build_plan("یک داشبورد فروش بساز", "w", ["f"])
+    assert dashboard["goal"] == "dashboard"
+    assert [step["tool"] for step in dashboard["steps"]] == ["inspect", "dashboard"]
 
 
 def test_shell_plan_and_foreign_numbers_are_rejected(tmp_path) -> None:
@@ -122,7 +126,7 @@ def test_filter_count_matches_an_independent_count(client: TestClient) -> None:
     assert ranked.json()["outputs"] == []
     assert ranked.json()["plan"]["goal"] == "rank"
     assert "ستون شهر" in ranked.json()["summary"]
-    assert "chart" not in ranked.text
+    assert all(step["tool"] != "chart" for step in ranked.json()["plan"]["steps"])
     assert "رتبه.xlsx" not in _names(client, workspace["id"])
 
 

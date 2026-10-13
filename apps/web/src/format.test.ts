@@ -48,8 +48,9 @@ describe("format", () => {
   test("quick actions stay on registered tools and share the reconcile sentence", () => {
     expect(QUICK_ACTIONS.map((action) => action.label)).toContain("رتبه شهر");
     expect(QUICK_ACTIONS.map((action) => action.label)).toContain("گزارش مدیریتی");
-    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("نمودار");
-    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("داشبورد");
+    expect(QUICK_ACTIONS.map((action) => action.label)).toContain("نمودار");
+    expect(QUICK_ACTIONS.map((action) => action.label)).toContain("داشبورد");
+    expect(QUICK_ACTIONS.map((action) => action.label)).not.toContain("ساخت فایل");
     expect(QUICK_ACTIONS.find((action) => action.label === "مغایرت")?.text).toBe(RECONCILE_TEXT);
     expect(QUICK_ACTIONS.find((action) => action.label === "پیش‌نمایش")?.text.includes("\u200c")).toBe(true);
   });

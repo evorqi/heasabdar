@@ -285,6 +285,18 @@ export function previewReconciliation(
   });
 }
 
+export type ChartPoint = { category: string; value: string };
+
+export type ChartSeries = { name: string; value_field: string; points: ChartPoint[] };
+
+export type ChartSpec = {
+  chart_type: "column" | "bar" | "line" | "pie" | "scatter" | "area" | "combo";
+  title: string;
+  category_field: string;
+  series: ChartSeries[];
+  source: string;
+};
+
 export type OperationOutput = {
   file_id: string;
   version_id: string;
@@ -302,6 +314,8 @@ export type Operation = {
   error: { code: string; message: string } | null;
   outputs: OperationOutput[];
   cards?: { name: string; label: string; value: string; unit: string; hypothesis: boolean }[];
+  charts?: ChartSpec[];
+  evaluation?: string | null;
   plan: {
     id: string;
     goal: string;

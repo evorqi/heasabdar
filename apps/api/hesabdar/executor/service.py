@@ -55,6 +55,9 @@ _DONE = {
     "outliers": "بررسی پرت انجام شد",
     "kpi": "شاخص‌ها آماده است",
     "report": "گزارش آماده است",
+    "chart": "نمودار آماده است",
+    "dashboard": "داشبورد آماده است",
+    "apply_formula": "فرمول نوشته شد",
 }
 _BUSY = {
     "filter": "در حال فیلتر",
@@ -71,6 +74,9 @@ _BUSY = {
     "outliers": "در حال بررسی پرت",
     "kpi": "در حال شاخص",
     "report": "در حال گزارش",
+    "chart": "در حال نمودار",
+    "dashboard": "در حال داشبورد",
+    "apply_formula": "در حال نوشتن فرمول",
 }
 _PERIOD_NOTE = " این نتیجه برای مهر است."
 
@@ -209,7 +215,10 @@ class OperationService:
         warnings: list[str] = []
         outputs: list[dict] = []
         cards: list[dict] = []
+        charts: list[dict] = []
+        evaluation = None
         sheet_name = None
+        parts: list[str] = []
         try:
             validate_plan({"steps": steps})
             for index, step in enumerate(steps):
@@ -236,14 +245,19 @@ class OperationService:
                         workspace_id,
                         self._waiting(workspace_id, plan, ambiguity, operation_id, result.waiting.get("pending")),
                     )
-                if step["tool"] != "inspect":
-                    summary = result.summary
-                elif summary is None:
-                    summary = result.summary
+                if step["tool"] == "inspect":
+                    if summary is None and not parts:
+                        summary = result.summary
+                elif result.summary:
+                    parts.append(result.summary)
                 warnings.extend(result.warnings)
                 outputs.extend(result.outputs)
-                if result.cards:
-                    cards = result.cards
+                for card in result.cards:
+                    if all(existing["name"] != card["name"] for existing in cards):
+                        cards.append(card)
+                charts.extend(result.charts)
+                if result.evaluation:
+                    evaluation = result.evaluation
                 sheet_name = result.sheet_name or sheet_name
         except AppError as exc:
             if exc.status_code in {400, 404}:
@@ -257,6 +271,8 @@ class OperationService:
             )
         if self._is_cancelled(workspace_id, operation_id):
             return self.get(workspace_id, operation_id)
+        if parts:
+            summary = " ".join(parts)
         if summary and plan.get("period") == "مهر":
             summary = summary + _PERIOD_NOTE
         record = self._load_or_base(workspace_id, operation_id, plan)
@@ -268,6 +284,8 @@ class OperationService:
         record["warnings"] = warnings
         record["outputs"] = outputs
         record["cards"] = cards
+        record["charts"] = charts
+        record["evaluation"] = evaluation
         record["error"] = None
         record["pending"] = None
         record["finished_at"] = _now()
@@ -557,6 +575,8 @@ class OperationService:
             "error": None,
             "outputs": [],
             "cards": [],
+            "charts": [],
+            "evaluation": None,
             "plan": plan,
             "llm_status": llm_status(self.settings),
             "pending": None,

@@ -67,12 +67,34 @@ def build_plan(user_text: str, workspace_id: str, file_ids: list[str]) -> dict:
         for file_id in targets:
             plan["steps"].append(_step("inspect", {"file_id": file_id}, [file_id], []))
     plan["steps"].append(_step(tool, params, list(file_ids), ["result"]))
+    if tool == "trend":
+        plan["steps"].append(
+            _step(
+                "chart",
+                {
+                    "file_id": params["file_id"],
+                    "chart_type": "line",
+                    "title": "روند فروش ماهانه",
+                    "category_role": "date",
+                },
+                list(file_ids),
+                ["result"],
+            )
+        )
     plan["goal"] = tool
     return plan
 
 
 def _signal(normal: str) -> str | None:
     found = []
+    if "داشبورد" in normal:
+        found.append("dashboard")
+    if "نمودار" in normal and "داشبورد" not in normal:
+        found.append("chart")
+    if "فرمول" in normal:
+        found.append("apply_formula")
+    elif "درصد اختلاف" in normal:
+        found.append("compute_column")
     if "گزارش مدیریتی" in normal:
         found.append("report")
     if "بیشترین" in normal and ("فروش" in normal or "شهر" in normal or "مبلغ" in normal):
@@ -85,8 +107,6 @@ def _signal(normal: str) -> str | None:
         found.append("kpi")
     if any(word in normal for word in ("مجموع", "میانگین", "میانه")) and "گزارش مدیریتی" not in normal and "بیشترین" not in normal:
         found.append("aggregate")
-    if "درصد اختلاف" in normal:
-        found.append("compute_column")
     if "تطبیق" in normal or "مغایرت" in normal:
         found.append("reconcile")
     if "پاکسازی" in normal:
@@ -132,8 +152,17 @@ def _params(tool: str, normal: str, file_ids: list[str]) -> tuple[str | None, di
         if not name or len(name) > 40 or looks_like_code(name):
             return None, {"question": PLAN_QUESTION}
         return tool, {"file_id": file_id, "name": name}
-    if tool in {"clean", "preview", "inspect", "aggregate", "rank", "trend", "outliers", "kpi", "report"}:
+    if tool == "chart":
+        chart_type, title = _chart_choice(normal)
+        chart_params = {"file_id": file_id, "chart_type": chart_type, "title": title}
+        role = _category_role(normal)
+        if role:
+            chart_params["category_role"] = role
+        return tool, chart_params
+    if tool in {"clean", "preview", "inspect", "aggregate", "rank", "trend", "outliers", "kpi", "report", "dashboard"}:
         return tool, {"file_id": file_id}
+    if tool == "apply_formula":
+        return tool, {"file_id": file_id, "name": "درصد اختلاف"}
     return None, {"question": PLAN_QUESTION}
 
 
@@ -188,3 +217,33 @@ def _ask(plan: dict, question: str) -> dict:
 
 def _step(tool: str, params: dict, reads: list[str], writes: list[str]) -> dict:
     return {"tool": tool, "params": params, "reads": reads, "writes": writes}
+
+
+_CHART_TYPES = (
+    ("ترکیب", "combo", "فروش ترکیبی"),
+    ("پراکند", "scatter", "پراکندگی مبلغ"),
+    ("دایره", "pie", "سهم فروش"),
+    ("سطح", "area", "فروش سطحی"),
+    ("میله", "bar", "فروش میله‌ای"),
+    ("ستون", "column", "فروش ستونی"),
+    ("خط", "line", "روند فروش"),
+)
+
+
+def _chart_choice(normal: str) -> tuple[str, str]:
+    for needle, chart_type, title in _CHART_TYPES:
+        if needle in normal:
+            return chart_type, title
+    return "column", "فروش"
+
+
+def _category_role(normal: str) -> str | None:
+    if "شهر" in normal:
+        return "city"
+    if "محصول" in normal:
+        return "product"
+    if "دسته" in normal:
+        return "category"
+    if "تاریخ" in normal or "ماه" in normal:
+        return "date"
+    return None

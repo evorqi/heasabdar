@@ -16,5 +16,8 @@ TOOLS = frozenset(
         "outliers",
         "kpi",
         "report",
+        "chart",
+        "dashboard",
+        "apply_formula",
     }
 )

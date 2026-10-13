@@ -553,6 +553,51 @@ select {
   color: var(--muted);
 }
 
+.pill-unchecked {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.chart-block {
+  margin: 8px 0 0;
+  max-width: 100%;
+}
+
+.chart-block figcaption {
+  font-weight: 700;
+}
+
+.chart-block svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.chart-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.chart-table th,
+.chart-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+  text-align: start;
+}
+
+.chart-table td {
+  font-variant-numeric: tabular-nums;
+}
+
 .quick-actions {
   display: flex;
   flex-wrap: wrap;
