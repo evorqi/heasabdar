@@ -9,16 +9,20 @@ from hesabdar.config import Settings
 from hesabdar.inspection.build import build_report
 from hesabdar.inspection.classify import CellView
 from hesabdar.inspection.readers import RawSheet, WorkbookRead
-from hesabdar.messages import FILE_CORRUPT_EXCEL
+from hesabdar.messages import FILE_CORRUPT_EXCEL, WORKBOOK_PARTIAL
 from tests.samples import make_xlsx
 from tests.test_api import create_workspace, upload
+from tests.test_operations import SORT_TEXT
 from tests.workbooks import (
     ERROR_TOKENS,
+    broken_row_workbook,
     error_workbook,
     flagged_workbook,
     persian_csv,
     persian_xls,
+    pivot_workbook,
     sales_workbook,
+    style_index_workbook,
 )
 
 
@@ -156,6 +160,54 @@ def test_macro_and_pivot_are_reported_without_rewriting(
     assert "pivot_table" in report["sheets"][0]["unsupported"]
     blob = settings.data_dir / "blobs" / workspace["id"] / stored["current_version_id"]
     assert blob.read_bytes() == original
+
+
+def test_unreadable_excel_parts_keep_sheet_values(client: TestClient, settings: Settings) -> None:
+    workspace = create_workspace(client)
+    original = pivot_workbook()
+    stored = store(client, workspace["id"], "سنگین.xlsx", original)
+    response = inspect(client, workspace["id"], stored["id"])
+    assert response.status_code == 200, response.text
+    report = response.json()
+    sales = report["sheets"][0]
+    assert sales["name"] == "فروش"
+    assert sales["columns"][0]["name"] == "نام"
+    assert sales["preview"]["rows"][0][0]["raw"] == "علی"
+    assert sales["preview"]["rows"][0][1]["raw"] == "15000000"
+    assert sales["preview"]["rows"][0][2]["raw"] == "=B2*2"
+    flags = {item["evidence"]["flag"] for item in report["findings"] if item["code"].startswith("structure.")}
+    assert "pivot_table" in flags
+    partial = [item for item in report["unchecked"] if item["code"] == "workbook.partial_read"]
+    assert len(partial) == 1
+    assert partial[0]["message"] == WORKBOOK_PARTIAL
+    assert "workbook.xml" not in response.text
+    assert str(settings.data_dir) not in response.text
+    blob = settings.data_dir / "blobs" / workspace["id"] / stored["current_version_id"]
+    assert blob.read_bytes() == original
+
+    sorted_file = client.post(
+        f"/api/workspaces/{workspace['id']}/operations",
+        json={"text": SORT_TEXT, "file_ids": [stored["id"]]},
+    )
+    assert sorted_file.status_code == 201, sorted_file.text
+    body = sorted_file.json()
+    assert body["status"] == "succeeded"
+    assert body["error"] is None
+    assert FILE_CORRUPT_EXCEL not in sorted_file.text
+    assert blob.read_bytes() == original
+
+    for builder in (style_index_workbook, broken_row_workbook):
+        payload = builder()
+        kept = store(client, workspace["id"], "فروش.xlsx", payload)
+        inspected = inspect(client, workspace["id"], kept["id"])
+        assert inspected.status_code == 200, inspected.text
+        sheet = inspected.json()["sheets"][0]
+        assert sheet["columns"][0]["name"] == "نام"
+        assert sheet["preview"]["rows"][0][0]["raw"] == "علی"
+        assert sheet["preview"]["rows"][0][1]["raw"] == "15000000"
+        assert any(item["message"] == WORKBOOK_PARTIAL for item in inspected.json()["unchecked"])
+        kept_blob = settings.data_dir / "blobs" / workspace["id"] / kept["current_version_id"]
+        assert kept_blob.read_bytes() == payload
 
 
 def test_corrupt_excel_is_rejected_without_leaking_bytes(client: TestClient, settings: Settings) -> None:
