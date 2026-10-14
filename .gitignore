@@ -1,0 +1,31 @@
+# داده‌های زمان اجرا؛ فایل کاربران هرگز وارد مخزن نمی‌شود
+data/
+*.sqlite
+*.sqlite3
+
+# رازها
+.env
+.env.*
+!.env.example
+
+# پایتون
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# رابط کاربری
+node_modules/
+apps/web/dist/
+apps/web/node_modules/
+
+# سیستم و گزارش محلی
+.DS_Store
+*.log
+coverage/
